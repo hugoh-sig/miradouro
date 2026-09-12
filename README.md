@@ -35,8 +35,10 @@ python -m miradouro chips status exemplos/demo/projeto.yaml
 ```
 
 Os painéis ficam em `exemplos/demo/chips/<provedor>/<PLOTID>.png`. Rodar `chips gerar`
-de novo não baixa nada que já exista (`--forcar` regera). Um ponto que falhar é registrado
-em `chips/erros.log` e pulado; o lote nunca cai por causa de um ponto.
+de novo não baixa nada que já exista (`--forcar` regera). Cada chip guarda a versão do
+provedor que o gerou (chunk de texto do PNG); quando o layout de um provedor muda e sua
+`versao` sobe, os chips antigos são regerados automaticamente. Um ponto que falhar é
+registrado em `chips/erros.log` e pulado; o lote nunca cai por causa de um ponto.
 
 Opções úteis de `chips gerar`: `--paralelo 4`, `--limite 20`, `--plotid 12 37`,
 `--provedor s2_sazonal`, `--sem-barra` (CI/logs). Código de saída `3` sinaliza falhas parciais.
@@ -94,7 +96,7 @@ são preservadas e mostradas ao intérprete, exceto as `colunas_ocultas`.
 |---|---|
 | `s2_sazonal` | Sentinel-2 SR (GEE): mediana sem nuvens por estação, cor verdadeira + falsa-cor NIR, janela alinhada à grade UTM de 10 m com o **pixel alvo** e a **janela 3×3** contornados |
 | `ndvi_serie` | Série NDVI multianual do pixel de 10 m (gráfico), ano de referência destacado |
-| `esri_basemap` | Esri World Imagery em um ou mais zooms, com o footprint real do pixel de 10 m projetado, barra de escala e atribuição. Recua o zoom automaticamente onde não há cobertura |
+| `esri_basemap` | Esri World Imagery em um ou mais zooms, com o footprint real do pixel de 10 m projetado, barra de escala e atribuição. Recua o zoom automaticamente onde não há cobertura (consulta o `tilemap` e ainda detecta o tile cinza "Map data not yet available" servido com HTTP 200) |
 
 Interface comum (`miradouro/chips/base.py`): um provedor recebe `PedidoChip(plotid, lon,
 lat, ano_referencia, config)` e devolve os bytes de um PNG. Para adicionar um provedor:
@@ -105,6 +107,7 @@ from miradouro.chips import ProvedorChip, registrar
 @registrar
 class MeuProvedor(ProvedorChip):
     nome = "meu_provedor"
+    versao = "1"          # suba ao mudar o painel: invalida o cache
     def gerar(self, pedido):
         ...
         return png_bytes

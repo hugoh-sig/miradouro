@@ -40,6 +40,30 @@ def test_cache_caminho_existe_gravar_listar(tmp_path):
     assert not c.existe("prov", "12")
 
 
+def test_cache_versao_embutida_e_invalidacao(tmp_path):
+    c = CacheChips(tmp_path)
+    c.gravar("prov", "1", _png(), versao="1.0")
+    assert c.versao_de("prov", "1") == "1.0"
+    assert c.existe("prov", "1") and c.existe("prov", "1", "1.0")
+    assert not c.existe("prov", "1", "1.1")  # versão nova → desatualizado
+    # O PNG continua sendo uma imagem válida e a versão do pacote também está lá.
+    from miradouro import __version__
+    from miradouro.chips.cache import CHAVE_PACOTE
+
+    with Image.open(c.caminho("prov", "1")) as im:
+        assert im.size == (4, 4) and im.info[CHAVE_PACOTE] == __version__
+    # Chip antigo, gravado sem versão, conta como desatualizado para qualquer versão.
+    c.gravar("prov", "2", _png())
+    assert c.versao_de("prov", "2") is None
+    assert c.existe("prov", "2") and not c.existe("prov", "2", "1.0")
+    # Regravar troca a versão em vez de acumular.
+    c.gravar("prov", "1", c.caminho("prov", "1").read_bytes(), versao="2.0")
+    assert c.versao_de("prov", "1") == "2.0"
+    # Arquivo ilegível não derruba a consulta.
+    c.caminho("prov", "1").write_bytes(b"\x89PNG\r\n\x1a\nlixo")
+    assert c.versao_de("prov", "1") is None and c.versao_de("prov", "9") is None
+
+
 def test_cache_recusa_nao_png(tmp_path):
     c = CacheChips(tmp_path)
     with pytest.raises(ValueError, match="não é PNG"):

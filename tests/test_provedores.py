@@ -26,6 +26,30 @@ def _abrir(png: bytes) -> Image.Image:
     return Image.open(io.BytesIO(png))
 
 
+def _png_textura(tam=(256, 256), semente=1) -> bytes:
+    """Tile 'de imagem real': ruído determinístico, nenhuma cor dominante."""
+    import random
+
+    rnd = random.Random(semente)
+    im = Image.new("RGB", tam)
+    im.putdata([(rnd.randrange(256), rnd.randrange(256), rnd.randrange(256)) for _ in range(tam[0] * tam[1])])
+    buf = io.BytesIO()
+    im.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def _png_placeholder(tam=(256, 256)) -> bytes:
+    """Imita o tile 'Map data not yet available': cinza com um pouco de texto."""
+    from PIL import ImageDraw
+
+    im = Image.new("RGB", tam, (204, 204, 204))
+    d = ImageDraw.Draw(im)
+    d.text((40, 120), "Map data not yet available", fill=(255, 255, 255))
+    buf = io.BytesIO()
+    im.save(buf, format="PNG")
+    return buf.getvalue()
+
+
 # ---- s2_sazonal -------------------------------------------------------------------
 
 
@@ -180,7 +204,7 @@ def test_esri_gera_painel_com_recuo_de_zoom(monkeypatch):
 
     def tile(z, x, y):
         baixados.append((z, x, y))
-        return _png((256, 256), (z * 10, 0, 0))
+        return _png_textura(semente=z)
 
     monkeypatch.setattr(p, "_baixar_tile", tile)
     monkeypatch.setattr(p, "_tile_existe", lambda z, x, y: z <= 17)
@@ -235,3 +259,58 @@ def test_esri_baixar_tile_tenta_de_novo(monkeypatch):
     with pytest.raises(RuntimeError, match="indisponível"):
         p._baixar_tile(17, 5, 6)
     assert len(chamadas) == 2 and chamadas[0].endswith("/17/6/5")
+
+
+def test_tile_e_placeholder():
+    from miradouro.chips.provedores.esri_basemap import HASHES_PLACEHOLDER, tile_e_placeholder
+
+    assert tile_e_placeholder(_png_placeholder()) is True
+    assert tile_e_placeholder(_png((256, 256), (128, 128, 128))) is True  # totalmente uniforme
+    assert tile_e_placeholder(_png_textura()) is False
+    # Água lisa: metade dos pixels numa cor, o resto em tons próximos — NÃO é placeholder.
+    im = Image.new("RGB", (256, 256), (20, 40, 60))
+    px = im.load()
+    for y in range(128):
+        for x in range(256):
+            px[x, y] = (20 + (x % 3), 40, 60 + (y % 2))
+    buf = io.BytesIO()
+    im.save(buf, format="PNG")
+    assert tile_e_placeholder(buf.getvalue()) is False
+    # Caminho por hash: o tile padrão conhecido é reconhecido pelos bytes.
+    import hashlib
+
+    real = _png_textura(semente=99)
+    assert tile_e_placeholder(real) is False
+    HASHES_PLACEHOLDER_NOVO = HASHES_PLACEHOLDER | {hashlib.md5(real).hexdigest()}
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(esri_basemap, "HASHES_PLACEHOLDER", HASHES_PLACEHOLDER_NOVO)
+        assert tile_e_placeholder(real) is True
+
+
+def test_esri_recua_quando_servico_serve_placeholder(monkeypatch):
+    """O tilemap diz que o tile existe, mas o servidor entrega o placeholder cinza."""
+    p = esri_basemap.ProvedorEsriBasemap({"zooms": [19], "tamanho_px": 300, "zoom_minimo": 15})
+    monkeypatch.setattr(p, "_tile_existe", lambda z, x, y: True)
+    baixados = []
+
+    def tile(z, x, y):
+        baixados.append(z)
+        return _png_placeholder() if z >= 18 else _png_textura(semente=z)
+
+    monkeypatch.setattr(p, "_baixar_tile", tile)
+    png = p.gerar(PEDIDO)
+    assert _abrir(png).format == "PNG"
+    assert 19 in baixados and 18 in baixados and 17 in baixados and min(baixados) == 17
+
+
+def test_esri_no_zoom_minimo_aceita_placeholder(monkeypatch):
+    p = esri_basemap.ProvedorEsriBasemap({"zooms": [17], "tamanho_px": 300, "zoom_minimo": 16})
+    monkeypatch.setattr(p, "_tile_existe", lambda z, x, y: True)
+    monkeypatch.setattr(p, "_baixar_tile", lambda z, x, y: _png_placeholder())
+    assert _abrir(p.gerar(PEDIDO)).format == "PNG"  # não entra em loop nem levanta
+
+
+def test_versoes_dos_provedores_definidas():
+    assert s2_sazonal.ProvedorS2Sazonal.versao == "1.1"
+    assert esri_basemap.ProvedorEsriBasemap.versao == "1.1"
+    assert ndvi_serie.ProvedorNdviSerie.versao == "1.0"

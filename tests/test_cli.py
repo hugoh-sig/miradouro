@@ -75,11 +75,19 @@ def test_chips_gerar_status_e_cache(yaml_cli, pasta_projeto, capsys):
     assert (pasta_projeto / "chips" / "erros.log").exists()
 
     assert main(["chips", "status", str(yaml_cli)]) == CODIGO_OK
-    assert "cli_falso      2/3" in capsys.readouterr().out
+    assert "cli_falso      2/3  v1" in capsys.readouterr().out
 
-    # Segunda rodada com barra de progresso: p1 e p3 vêm do cache; p2 falha de novo.
+    # Chip de versão antiga aparece como "será regerado" no status.
+    from miradouro.chips import CacheChips
+
+    CacheChips(pasta_projeto / "chips").gravar("cli_falso", "p3", (pasta_projeto / "chips" / "cli_falso" / "p3.png").read_bytes(), versao="0")
+    assert main(["chips", "status", str(yaml_cli)]) == CODIGO_OK
+    assert "1/3  v1  (1 de versão antiga, serão regerados)" in capsys.readouterr().out
+
+    # Segunda rodada com barra de progresso: p1 vem do cache, p3 é regerado (versão antiga); p2 falha de novo.
     assert main(["chips", "gerar", str(yaml_cli)]) == CODIGO_FALHAS_PARCIAIS
-    assert "2 já em cache" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert "1 gerados (1 regerados por versão nova), 1 já em cache" in err
 
 
 def test_chips_gerar_filtros(yaml_cli, capsys):

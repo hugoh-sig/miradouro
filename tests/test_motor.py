@@ -82,6 +82,25 @@ def test_lote_gera_usa_cache_e_forca(projeto, tmp_path):
     assert (r3.gerados, r3.em_cache) == (3, 0)
 
 
+def test_lote_regera_chips_de_versao_antiga(projeto, tmp_path):
+    pontos = carregar_pontos(projeto.caminho_pontos)
+    cache = CacheChips(tmp_path / "chips")
+    gerar_chips(projeto, pontos, [ProvedorFalso({})], cache)
+    assert all(cache.versao_de("falso", i) == ProvedorFalso.versao for i in pontos.ids)
+
+    class FalsoV2(ProvedorFalso):
+        versao = "2"
+
+    ProvedorFalso.chamadas = []
+    r = gerar_chips(projeto, pontos, [FalsoV2({})], cache)
+    assert (r.gerados, r.desatualizados, r.em_cache) == (3, 3, 0)
+    assert "3 regerados por versão nova" in r.resumo()
+    assert sorted(ProvedorFalso.chamadas) == ["p1", "p2", "p3"]
+    assert all(cache.versao_de("falso", i) == "2" for i in pontos.ids)
+    r2 = gerar_chips(projeto, pontos, [FalsoV2({})], cache)
+    assert (r2.gerados, r2.desatualizados, r2.em_cache) == (0, 0, 3)
+
+
 def test_lote_tolera_falhas_e_registra(projeto, tmp_path):
     pontos = carregar_pontos(projeto.caminho_pontos)
     cache = CacheChips(tmp_path / "chips")

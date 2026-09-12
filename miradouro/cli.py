@@ -110,15 +110,18 @@ def cmd_chips_listar(_: argparse.Namespace) -> int:
 
 
 def cmd_chips_status(args: argparse.Namespace) -> int:
-    from miradouro.chips import CacheChips
+    from miradouro.chips import CacheChips, obter_provedor
 
     projeto = carregar_projeto(args.projeto)
     pontos = carregar_pontos(projeto.caminho_pontos)
     cache = CacheChips(projeto.pasta_chips)
     print(f"Chips em {cache.pasta} ({len(pontos)} pontos):")
     for nome in projeto.provedores_habilitados():
-        feitos = sum(1 for p in pontos if cache.existe(nome, p.plotid))
-        print(f"  {nome:<14} {feitos}/{len(pontos)}")
+        versao = obter_provedor(nome).versao
+        atuais = sum(1 for p in pontos if cache.existe(nome, p.plotid, versao))
+        antigos = sum(1 for p in pontos if cache.existe(nome, p.plotid)) - atuais
+        aviso = f"  ({antigos} de versão antiga, serão regerados)" if antigos else ""
+        print(f"  {nome:<14} {atuais}/{len(pontos)}  v{versao}{aviso}")
     return CODIGO_OK
 
 
