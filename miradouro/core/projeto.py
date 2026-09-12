@@ -147,6 +147,7 @@ class Campo(_Modelo):
     obrigatorio: bool = False
     obrigatorio_se: CondicaoCampo | None = None
     opcoes: list[OpcaoCampo] = Field(default_factory=list)
+    padrao: str | None = Field(default=None, description="Regex que um campo `texto` deve satisfazer (ex.: AAAA-MM).")
     ajuda: str = ""
 
     @field_validator("nome")
@@ -182,6 +183,13 @@ class Campo(_Modelo):
             )
         elif self.opcoes:
             raise ValueError(f"campo {self.nome!r} do tipo {self.tipo!r} não aceita `opcoes`")
+        if self.padrao is not None:
+            if self.tipo != "texto":
+                raise ValueError(f"campo {self.nome!r}: `padrao` só se aplica ao tipo 'texto'")
+            try:
+                re.compile(self.padrao)
+            except re.error as e:
+                raise ValueError(f"campo {self.nome!r}: `padrao` não é regex válida ({e})") from None
         if self.obrigatorio and self.obrigatorio_se is not None:
             raise ValueError(
                 f"campo {self.nome!r}: `obrigatorio: true` e `obrigatorio_se` são excludentes"
@@ -425,6 +433,8 @@ def validar_resposta(projeto: Projeto, valores: dict[str, Any]) -> list[str]:
         elif campo.tipo == "texto":
             if not isinstance(valor, str):
                 erros.append(f"{campo.nome}: deve ser texto")
+            elif campo.padrao and not re.fullmatch(campo.padrao, valor.strip()):
+                erros.append(f"{campo.nome}: {valor!r} não segue o formato esperado ({campo.padrao})")
     return erros
 
 

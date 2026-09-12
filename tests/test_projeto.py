@@ -103,6 +103,32 @@ def test_projetos_invalidos(dados_projeto, alteracao, trecho):
     assert trecho in str(exc.value)
 
 
+def test_padrao_de_texto(dados_projeto):
+    dados_projeto["campos"].append({"nome": "data_hr", "tipo": "texto", "padrao": r"[0-9]{4}-(0[1-9]|1[0-2])"})
+    p = projeto_de_dict(dados_projeto)
+    base = {"classe_ref": "1", "confianca": "alta"}
+    assert validar_resposta(p, {**base, "data_hr": "2023-07"}) == []
+    assert validar_resposta(p, {**base, "data_hr": " 2023-12 "}) == []
+    assert validar_resposta(p, {**base}) == []  # opcional e vazio
+    erros = validar_resposta(p, {**base, "data_hr": "07/2023"})
+    assert erros == ["data_hr: '07/2023' não segue o formato esperado ([0-9]{4}-(0[1-9]|1[0-2]))"]
+    assert validar_resposta(p, {**base, "data_hr": "2023-13"}) != []
+    assert validar_resposta(p, {**base, "data_hr": "x2023-07"}) != []
+
+
+@pytest.mark.parametrize(
+    "campo, trecho",
+    [
+        ({"nome": "n", "tipo": "numero", "padrao": "x"}, "só se aplica"),
+        ({"nome": "t", "tipo": "texto", "padrao": "("}, "regex válida"),
+    ],
+)
+def test_padrao_invalido(dados_projeto, campo, trecho):
+    dados_projeto["campos"].append(campo)
+    with pytest.raises(ErroProjeto, match=trecho):
+        projeto_de_dict(dados_projeto)
+
+
 def test_condicao_igual_a_lista(dados_projeto):
     dados_projeto["campos"][3]["obrigatorio_se"] = {"campo": "confianca", "igual_a": ["media", "baixa"]}
     p = projeto_de_dict(dados_projeto)
@@ -191,6 +217,14 @@ def test_exemplos_do_repositorio_validam():
     assert [c.tecla for c in para.legenda] == [str(i) for i in range(1, 9)]
     assert {"estrato_classe", "faixa_rio", "conjunto"} <= para.colunas_ocultas
     assert para.campo("classe_alternativa").obrigatorio_se.campo == "confianca"
+    data_hr = para.campo("data_imagem_hr")
+    assert data_hr.tipo == "texto" and data_hr.obrigatorio_se.campo == "fonte_principal"
+    assert data_hr.obrigatorio_se.igual_a == "hr" and data_hr.padrao
+    base = {"classe_ref": "1", "confianca": "alta", "fonte_principal": "hr"}
+    assert validar_resposta(para, base) == ["data_imagem_hr: obrigatório quando fonte_principal = hr"]
+    assert validar_resposta(para, {**base, "data_imagem_hr": "2023-08"}) == []
+    assert validar_resposta(para, {**base, "data_imagem_hr": "ago/2023"}) != []
+    assert validar_resposta(para, {**base, "fonte_principal": "serie"}) == []
     assert set(para.provedores_habilitados()) == {"s2_sazonal", "ndvi_serie", "esri_basemap"}
 
 

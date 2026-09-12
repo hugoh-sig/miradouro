@@ -65,9 +65,12 @@ campos:                               # tipos: classe | opcao | texto | numero |
     tipo: opcao
     obrigatorio: true
     opcoes: [{valor: alta, tecla: A}, {valor: media, tecla: M}, {valor: baixa, tecla: B}]
+  - {nome: fonte_principal, tipo: opcao, obrigatorio: true, opcoes: [hr, serie, s2]}
   - nome: classe_alternativa
     tipo: classe
     obrigatorio_se: {campo: confianca, diferente_de: alta}   # condicional
+  - {nome: data_imagem_hr, tipo: texto, padrao: "[0-9]{4}-[0-9]{2}",
+     obrigatorio_se: {campo: fonte_principal, igual_a: hr}}  # regex opcional
   - {nome: observacao, tipo: texto}
 
 chips:

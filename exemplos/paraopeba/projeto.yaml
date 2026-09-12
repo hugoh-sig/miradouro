@@ -153,6 +153,15 @@ campos:
       - {valor: serie, rotulo: Série NDVI, tecla: N}
       - {valor: s2, rotulo: Sentinel-2 sazonal, tecla: S}
 
+  - nome: data_imagem_hr
+    tipo: texto
+    rotulo: Data da imagem de alta resolução (AAAA-MM)
+    # Obrigatória quando a decisão veio da alta resolução; `padrao` é uma regex
+    # que o texto precisa satisfazer.
+    obrigatorio_se: {campo: fonte_principal, igual_a: hr}
+    padrao: '[12][0-9]{3}-(0[1-9]|1[0-2])'
+    ajuda: Se a imagem for de outro ano, confirme com a série NDVI que a cobertura era a mesma em 2023.
+
   - nome: classe_alternativa
     tipo: classe
     rotulo: Classe alternativa (segunda hipótese)
