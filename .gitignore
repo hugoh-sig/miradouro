@@ -1,0 +1,27 @@
+# Material de referência de outros projetos — nunca entra no repositório
+refs_paraopeba/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Saídas geradas pelo MIRADOURO (chips, respostas, backups, logs)
+exemplos/*/chips/
+exemplos/*/respostas/
+chips/
+respostas/
+*.log
+
+# Sistema / editores
+.DS_Store
+.vscode/
+.idea/

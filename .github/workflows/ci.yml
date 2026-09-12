@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  testes:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - name: Instalar
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[chips,dev]"
+      - name: Lint (ruff)
+        run: ruff check .
+      - name: Testes
+        run: pytest --cov=miradouro --cov-report=term-missing
+      - name: CLI (smoke)
+        run: |
+          python -m miradouro --versao
+          python -m miradouro chips listar
+          python -m miradouro projeto validar exemplos/demo/projeto.yaml

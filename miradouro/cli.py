@@ -1,0 +1,203 @@
+"""Linha de comando: ``python -m miradouro <comando> ...``.
+
+Comandos do Sprint 1:
+
+* ``projeto validar <projeto.yaml>`` — valida yaml e CSV, resume o projeto.
+* ``chips listar`` — provedores registrados.
+* ``chips gerar <projeto.yaml>`` — pré-computa os chips em lote (com cache).
+* ``chips status <projeto.yaml>`` — quantos chips já existem por provedor.
+"""
+
+from __future__ import annotations
+
+import argparse
+import logging
+import sys
+from collections.abc import Sequence
+
+from miradouro import __version__
+from miradouro.core.erros import ErroMiradouro
+from miradouro.core.pontos import carregar_pontos
+from miradouro.core.projeto import carregar_projeto
+
+log = logging.getLogger("miradouro")
+
+CODIGO_OK = 0
+CODIGO_ERRO = 1
+CODIGO_FALHAS_PARCIAIS = 3
+
+
+def _parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(
+        prog="miradouro",
+        description="MIRADOURO — fotointerpretação de pontos de validação.",
+    )
+    p.add_argument("--versao", action="version", version=f"miradouro {__version__}")
+    p.add_argument("-v", "--verboso", action="store_true", help="log detalhado")
+    sub = p.add_subparsers(dest="comando", required=True)
+
+    # projeto
+    proj = sub.add_parser("projeto", help="operações sobre o projeto.yaml")
+    proj_sub = proj.add_subparsers(dest="subcomando", required=True)
+    val = proj_sub.add_parser("validar", help="valida projeto.yaml e pontos.csv")
+    val.add_argument("projeto", help="caminho do projeto.yaml")
+
+    # chips
+    chips = sub.add_parser("chips", help="pré-computação de chips")
+    chips_sub = chips.add_subparsers(dest="subcomando", required=True)
+    chips_sub.add_parser("listar", help="lista os provedores registrados")
+
+    ger = chips_sub.add_parser("gerar", help="gera os chips de todos os pontos (com cache)")
+    ger.add_argument("projeto", help="caminho do projeto.yaml")
+    ger.add_argument("--forcar", action="store_true", help="regera chips já existentes")
+    ger.add_argument("--paralelo", type=int, default=1, metavar="N", help="tarefas simultâneas (padrão 1)")
+    ger.add_argument("--limite", type=int, default=None, metavar="N", help="só os N primeiros pontos")
+    ger.add_argument("--plotid", nargs="+", default=None, metavar="ID", help="só estes PLOTIDs")
+    ger.add_argument("--provedor", nargs="+", default=None, metavar="NOME", help="só estes provedores")
+    ger.add_argument("--sem-barra", action="store_true", help="sem barra de progresso (logs/CI)")
+
+    st = chips_sub.add_parser("status", help="chips existentes por provedor")
+    st.add_argument("projeto", help="caminho do projeto.yaml")
+    return p
+
+
+def _configurar_log(verboso: bool) -> None:
+    logging.basicConfig(
+        level=logging.DEBUG if verboso else logging.INFO,
+        format="%(levelname)s %(name)s: %(message)s",
+        stream=sys.stderr,
+    )
+    if not verboso:
+        # Bibliotecas de rede são ruidosas em INFO.
+        for nome in ("urllib3", "googleapiclient", "requests"):
+            logging.getLogger(nome).setLevel(logging.WARNING)
+
+
+# ---- comandos ----------------------------------------------------------------
+
+
+def cmd_projeto_validar(args: argparse.Namespace) -> int:
+    projeto = carregar_projeto(args.projeto)
+    pontos = carregar_pontos(projeto.caminho_pontos)
+    ocultas_ausentes = [c for c in projeto.pontos.colunas_ocultas if c not in pontos.colunas]
+    print(f"Projeto: {projeto.nome} (ano de referência {projeto.ano_referencia})")
+    print(f"  yaml:     {projeto.caminho_yaml}  sha256 {projeto.hash_yaml[:12] if projeto.hash_yaml else '-'}")
+    print(f"  pontos:   {len(pontos)} em {pontos.caminho}")
+    print(f"  colunas extras: {pontos.colunas_extras or '-'}")
+    print(f"  ocultas ao intérprete: {projeto.pontos.colunas_ocultas or '-'}")
+    if ocultas_ausentes:
+        print(f"  AVISO: colunas ocultas que não existem no CSV: {ocultas_ausentes}")
+    print(f"  legenda:  {len(projeto.legenda)} classes")
+    for c in projeto.legenda:
+        print(f"    [{c.tecla}] {c.codigo:>4}  {c.rotulo}")
+    print(f"  campos:   {len(projeto.campos)}")
+    for c in projeto.campos:
+        obrig = "obrigatório" if c.obrigatorio else ("condicional" if c.condicional else "opcional")
+        print(f"    {c.nome:<20} {c.tipo:<9} {obrig}")
+    print(f"  provedores de chips: {projeto.provedores_habilitados() or '-'}")
+    print(f"  pasta de chips: {projeto.pasta_chips}")
+    print(f"  pasta de saída: {projeto.pasta_saida}")
+    print("OK")
+    return CODIGO_OK
+
+
+def cmd_chips_listar(_: argparse.Namespace) -> int:
+    from miradouro.chips import provedores_disponiveis
+
+    for nome, cls in sorted(provedores_disponiveis().items()):
+        print(f"{nome:<14} {cls.descricao}")
+    return CODIGO_OK
+
+
+def cmd_chips_status(args: argparse.Namespace) -> int:
+    from miradouro.chips import CacheChips
+
+    projeto = carregar_projeto(args.projeto)
+    pontos = carregar_pontos(projeto.caminho_pontos)
+    cache = CacheChips(projeto.pasta_chips)
+    print(f"Chips em {cache.pasta} ({len(pontos)} pontos):")
+    for nome in projeto.provedores_habilitados():
+        feitos = sum(1 for p in pontos if cache.existe(nome, p.plotid))
+        print(f"  {nome:<14} {feitos}/{len(pontos)}")
+    return CODIGO_OK
+
+
+def cmd_chips_gerar(args: argparse.Namespace) -> int:
+    from miradouro.chips import CacheChips, gerar_chips, instanciar_provedores
+
+    projeto = carregar_projeto(args.projeto)
+    conjunto = carregar_pontos(projeto.caminho_pontos)
+    pontos = list(conjunto)
+    if args.plotid:
+        pedidos = [str(i) for i in args.plotid]
+        desconhecidos = [i for i in pedidos if i not in conjunto]
+        if desconhecidos:
+            raise ErroMiradouro(f"PLOTID(s) não encontrado(s) no CSV: {desconhecidos}")
+        pontos = [conjunto.obter(i) for i in pedidos]
+    if args.limite is not None:
+        pontos = pontos[: args.limite]
+
+    provedores = instanciar_provedores(projeto, apenas=args.provedor)
+    if not provedores:
+        raise ErroMiradouro("nenhum provedor de chips habilitado em `chips.provedores` do projeto")
+    cache = CacheChips(projeto.pasta_chips)
+
+    print(
+        f"Gerando chips: {len(pontos)} pontos × {len(provedores)} provedores "
+        f"({', '.join(p.nome for p in provedores)}) → {cache.pasta}",
+        file=sys.stderr,
+    )
+
+    barra = None
+    if not args.sem_barra:
+        from tqdm import tqdm
+
+        barra = tqdm(total=0, unit="chip", dynamic_ncols=True, file=sys.stderr)
+
+    def progresso(feitos: int, total: int) -> None:
+        if barra is not None:
+            barra.total = total
+            barra.n = feitos
+            barra.refresh()
+
+    try:
+        resultado = gerar_chips(
+            projeto, pontos, provedores, cache, forcar=args.forcar, paralelo=args.paralelo, progresso=progresso
+        )
+    finally:
+        if barra is not None:
+            barra.close()
+
+    print(f"Concluído: {resultado.resumo()}", file=sys.stderr)
+    if resultado.falhas:
+        print(f"Falhas registradas em {cache.pasta / 'erros.log'}:", file=sys.stderr)
+        for f in resultado.falhas[:20]:
+            print(f"  {f.provedor}/{f.plotid}: {f.erro}", file=sys.stderr)
+        if len(resultado.falhas) > 20:
+            print(f"  ... e mais {len(resultado.falhas) - 20}", file=sys.stderr)
+        return CODIGO_FALHAS_PARCIAIS
+    return CODIGO_OK
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    args = _parser().parse_args(argv)
+    _configurar_log(args.verboso)
+    comandos = {
+        ("projeto", "validar"): cmd_projeto_validar,
+        ("chips", "listar"): cmd_chips_listar,
+        ("chips", "gerar"): cmd_chips_gerar,
+        ("chips", "status"): cmd_chips_status,
+    }
+    funcao = comandos[(args.comando, args.subcomando)]
+    try:
+        return funcao(args)
+    except ErroMiradouro as e:
+        print(f"erro: {e}", file=sys.stderr)
+        return CODIGO_ERRO
+    except KeyboardInterrupt:
+        print("interrompido", file=sys.stderr)
+        return 130
+
+
+if __name__ == "__main__":  # pragma: no cover
+    raise SystemExit(main())

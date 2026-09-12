@@ -1,0 +1,50 @@
+# Projeto de demonstração do MIRADOURO — 5 pontos em Minas Gerais (coordenadas
+# públicas aproximadas, apenas para testar os provedores de chips).
+# Ver exemplos/paraopeba/projeto.yaml para a versão comentada campo a campo.
+
+nome: Demo MIRADOURO (Minas Gerais)
+ano_referencia: 2023
+descricao: Cinco pontos para testar os três provedores de chips.
+
+pontos:
+  arquivo: pontos.csv
+  colunas_ocultas: [classe_mapa]
+
+legenda:
+  - {codigo: 1, nome: veg_nativa, rotulo: Vegetação nativa, tecla: "1", cor: "#1a9850"}
+  - {codigo: 2, nome: pastagem, rotulo: Pastagem, tecla: "2", cor: "#fee08b"}
+  - {codigo: 3, nome: agricultura, rotulo: Agricultura, tecla: "3", cor: "#d73027"}
+  - {codigo: 6, nome: agua, rotulo: Água, tecla: "6", cor: "#4575b4"}
+  - {codigo: 7, nome: urbano, rotulo: Urbano, tecla: "7", cor: "#762a83"}
+  - {codigo: 8, nome: outros, rotulo: Outros (não vegetado), tecla: "8", cor: "#8c510a"}
+
+campos:
+  - {nome: classe_ref, tipo: classe, rotulo: Classe de referência, obrigatorio: true}
+  - nome: confianca
+    tipo: opcao
+    rotulo: Confiança
+    obrigatorio: true
+    opcoes:
+      - {valor: alta, tecla: A}
+      - {valor: media, rotulo: média, tecla: M}
+      - {valor: baixa, tecla: B}
+  - {nome: observacao, tipo: texto, rotulo: Observação}
+
+chips:
+  pasta: chips
+  provedores:
+    s2_sazonal:
+      projeto_gee: ee-hugohcsalis2
+      estacoes:
+        - {nome: seca, inicio: "2023-05-01", fim: "2023-09-30"}
+        - {nome: chuvosa, inicio: "2022-11-01", fim: "2023-03-31"}
+    ndvi_serie:
+      projeto_gee: ee-hugohcsalis2
+      ano_inicio: 2019
+      ano_fim: 2025
+    esri_basemap:
+      zooms: [17, 19]
+
+saida:
+  pasta: respostas
+  backups: 5

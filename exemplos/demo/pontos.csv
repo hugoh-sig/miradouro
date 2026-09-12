@@ -1,0 +1,6 @@
+PLOTID,LON,LAT,regiao,classe_mapa
+d1,-43.93780,-19.93180,Belo Horizonte - Praça da Liberdade,urbano
+d2,-43.97300,-19.85300,Belo Horizonte - Lagoa da Pampulha,agua
+d3,-43.59000,-19.38000,Serra do Cipó,veg_nativa
+d4,-44.40500,-19.28500,Paraopeba - zona rural,pastagem
+d5,-44.12100,-20.12000,Brumadinho - mina Córrego do Feijão,outros

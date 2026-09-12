@@ -1,0 +1,204 @@
+# =============================================================================
+# MIRADOURO — projeto.yaml de exemplo (primeiro cliente: validação Paraopeba R3)
+# =============================================================================
+# Este arquivo é o ÚNICO lugar onde a ferramenta aprende sobre o seu projeto:
+# legenda, campos de resposta, pontos, colunas escondidas do intérprete e
+# provedores de chips. Caminhos relativos são resolvidos a partir desta pasta.
+#
+# Validar:   python -m miradouro projeto validar exemplos/paraopeba/projeto.yaml
+# Chips:     python -m miradouro chips gerar   exemplos/paraopeba/projeto.yaml
+# -----------------------------------------------------------------------------
+
+nome: Validação R3 Paraopeba 2023 (piloto 3)
+ano_referencia: 2023            # ano que o intérprete deve rotular
+descricao: >
+  Pontos de validação do mapa de uso e cobertura da Região 3 (bacia do rio
+  Paraopeba, MG). Amostragem estratificada por classe (50/classe) mais
+  sobreamostra aleatória na faixa 0–1 km do rio. Unidade de avaliação: o pixel
+  Sentinel-2 de 10 m no centro do ponto, lido com contexto 3×3.
+
+# ---- Pontos -----------------------------------------------------------------
+pontos:
+  # CSV com PLOTID, LON, LAT (obrigatórias) + colunas extras quaisquer.
+  # Aqui aponta para o material de referência, que fica FORA do repositório.
+  arquivo: ../../refs_paraopeba/r3_validacao_2023_piloto3_v2_pontos.csv
+  # Colunas que o intérprete NUNCA vê: a classe do mapa e o desenho amostral
+  # existem só para o estimador (AcATaMa). Rotulagem cega ou a acurácia não vale.
+  colunas_ocultas: [estrato_classe, faixa_rio, conjunto, classe_mapa_nome]
+
+# ---- Legenda ----------------------------------------------------------------
+# codigo: valor gravado na resposta | nome: identificador estável | rotulo: nome
+# legível | tecla: atalho de teclado (1 caractere) | cor: #rrggbb | descricao:
+# como a classe aparece nas imagens e como decidir nas confusões típicas.
+legenda:
+  - codigo: 1
+    nome: veg_nativa
+    rotulo: Vegetação nativa (florestal, campestre, alagada)
+    tecla: "1"
+    cor: "#1a9850"
+    descricao: >
+      Dossel arbóreo contínuo e irregular (textura "couve-flor", sombras
+      internas); cerrado com árvores esparsas sobre herbáceas; campo natural com
+      grama irregular, sem cercas retas nem pisoteio; brejos escuros em fundo de
+      vale. Vs pastagem: sem cercas, currais ou trilhas de gado, NDVI estável e
+      sem "cortes". Vs silvicultura: sem linhas de plantio nem bordas retas.
+
+  - codigo: 2
+    nome: pastagem
+    rotulo: Pastagem
+    tecla: "2"
+    cor: "#fee08b"
+    descricao: >
+      Superfície herbácea uniforme, verde-clara a amarelada na seca; lotes
+      delimitados por cercas retas, trilhas de gado convergindo para bebedouros
+      e currais, árvores isoladas; pode ter manchas de solo exposto. Vs campo
+      nativo: cercas, trilhas, uniformidade. Vs lavoura anual: sem linhas de
+      plantio nem ciclo abrupto solo nu → verde → colheita no NDVI.
+
+  - codigo: 3
+    nome: agri_anual
+    rotulo: Agricultura anual (milho, soja, feijão, cana...)
+    tecla: "3"
+    cor: "#d73027"
+    descricao: >
+      Talhões geométricos com linhas de plantio paralelas e mudança forte entre
+      datas (solo nu → verde denso → colheita); cana em talhões grandes com
+      carreadores; pivô central aparece como círculo. Vs pastagem: geometria e
+      ciclo anual no NDVI. Vs perene: anual fica com solo nu parte do ano.
+
+  - codigo: 4
+    nome: perene_silvic
+    rotulo: Perenes (café, citros, frutas) e silvicultura (eucalipto, pinus)
+    tecla: "4"
+    cor: "#66a61e"
+    descricao: >
+      Fileiras regulares de plantas individuais (café em linhas finas em curva
+      de nível; citros em grade de pontos); eucalipto em blocos retangulares de
+      dossel muito uniforme e verde-escuro, linhas visíveis, talhões em idades
+      diferentes (recém-cortados = solo com restos). Vs nativa: regularidade e
+      bordas retas. Vs anual: verde o ano todo (exceto corte raso).
+
+  - codigo: 5
+    nome: mosaico_agrifam
+    rotulo: Mosaico de usos (proxy de agricultura familiar)
+    tecla: "5"
+    cor: "#e6ab02"
+    descricao: >
+      Mistura fina de pequenos lotes (hortas, roças < 1–2 ha, pomares de
+      quintal, pasto pequeno, casa/curral) em escala de dezenas de metros, sem
+      uso dominante no entorno 3×3. ROTULE PELO PIXEL CENTRAL: se o pixel de
+      10 m é claramente pasto ou roça, use 2 ou 3 e anote "em mosaico". Só use 5
+      quando o próprio pixel é mistura indissociável ou lote < 0,5 ha cercado
+      por usos distintos. Classe mais difícil: registre a confiança.
+
+  - codigo: 6
+    nome: agua
+    rotulo: Água
+    tecla: "6"
+    cor: "#4575b4"
+    descricao: >
+      Rio, lago, açude, represa, tanque de piscicultura: superfície lisa,
+      escura ou esverdeada/barrenta; NDVI negativo. Se há vegetação emergente
+      cobrindo o pixel, é 1 (alagada). Leito seco em 2023 não é água.
+
+  - codigo: 7
+    nome: urbano
+    rotulo: Área urbana
+    tecla: "7"
+    cor: "#762a83"
+    descricao: >
+      Telhados, ruas pavimentadas, quadras, galpões, pátios industriais,
+      loteamentos com arruamento (mesmo pouco edificados, se o solo já está
+      impermeabilizado). Sede de fazenda isolada (casa + curral) NÃO é urbano:
+      é o uso do entorno (2 ou 5). Vilas rurais densas são 7.
+
+  - codigo: 8
+    nome: outros
+    rotulo: Outros não vegetados (mineração, rocha, solo exposto)
+    tecla: "8"
+    cor: "#8c510a"
+    descricao: >
+      Mineração (cavas, pilhas, barragens de rejeito, solo revolvido em grande
+      escala), afloramento rochoso, areais, solo exposto extenso não agrícola
+      (terraplenagem, voçoroca grande). Vs lavoura em solo nu: a série NDVI
+      mostra se volta a esverdear (→ 3). Vs pasto degradado: pasto tem gramínea
+      mesmo rala (→ 2).
+
+# ---- Campos de resposta -----------------------------------------------------
+# tipo: classe (um código da legenda) | opcao (lista fechada) | texto | numero | booleano
+# obrigatorio: true/false | obrigatorio_se: condição sobre outro campo
+campos:
+  - nome: classe_ref
+    tipo: classe
+    rotulo: Classe de referência
+    obrigatorio: true
+    ajuda: O que domina o pixel de 10 m no centro do ponto, em 2023.
+
+  - nome: confianca
+    tipo: opcao
+    rotulo: Confiança
+    obrigatorio: true
+    opcoes:
+      - {valor: alta, rotulo: Alta, tecla: A}
+      - {valor: media, rotulo: Média, tecla: M}
+      - {valor: baixa, rotulo: Baixa, tecla: B}
+    ajuda: Baixa = vai para segunda interpretação independente.
+
+  - nome: fonte_principal
+    tipo: opcao
+    rotulo: Fonte principal da decisão
+    obrigatorio: true
+    opcoes:
+      - {valor: hr, rotulo: Alta resolução, tecla: H}
+      - {valor: serie, rotulo: Série NDVI, tecla: N}
+      - {valor: s2, rotulo: Sentinel-2 sazonal, tecla: S}
+
+  - nome: classe_alternativa
+    tipo: classe
+    rotulo: Classe alternativa (segunda hipótese)
+    # Obrigatória sempre que a confiança não for alta.
+    obrigatorio_se: {campo: confianca, diferente_de: alta}
+    ajuda: Em dúvida entre duas classes, escolha a mais provável e anote a outra aqui.
+
+  - nome: observacao
+    tipo: texto
+    rotulo: Observação
+    ajuda: 'Curta, ex.: "pasto em mosaico", "eucalipto recém-cortado".'
+
+# ---- Chips (pré-computação) -------------------------------------------------
+# Cada provedor gera um painel PNG por ponto em <pasta>/<provedor>/<PLOTID>.png.
+# Chip existente não é re-baixado (use --forcar para regerar).
+chips:
+  pasta: chips
+  provedores:
+    # (a) Sentinel-2 SR sazonal via Google Earth Engine: mediana sem nuvens por
+    #     estação, em cor verdadeira e falsa-cor NIR, pixel alvo e 3×3 marcados.
+    s2_sazonal:
+      projeto_gee: ee-hugohcsalis2        # ou variável de ambiente EARTHENGINE_PROJECT
+      janela_pixels: 31                   # ímpar; 31 × 10 m = 310 m de lado
+      ampliacao: 12                       # pixels de tela por pixel S2
+      nuvens_max: 60                      # CLOUDY_PIXEL_PERCENTAGE máximo por cena
+      estacoes:                           # datas AAAA-MM-DD ou MM-DD (relativas ao ano_referencia)
+        - {nome: seca, inicio: "2023-05-01", fim: "2023-09-30"}
+        - {nome: chuvosa, inicio: "2022-11-01", fim: "2023-03-31"}
+      # composicoes: (padrão) cor verdadeira B4-B3-B2 e falsa-cor NIR B8-B4-B3
+
+    # (b) Série temporal NDVI multianual do pixel de 10 m (gráfico).
+    ndvi_serie:
+      projeto_gee: ee-hugohcsalis2
+      ano_inicio: 2019
+      ano_fim: 2025
+      nuvens_max: 60
+      janela_mediana: 3                   # observações na mediana móvel
+
+    # (c) Basemap Esri World Imagery (atribuição impressa no chip). Se o zoom
+    #     pedido não tiver cobertura, recua até zoom_minimo.
+    esri_basemap:
+      zooms: [17, 19]
+      zoom_minimo: 15
+      tamanho_px: 420
+
+# ---- Saída ------------------------------------------------------------------
+saida:
+  pasta: respostas      # respostas.json + backups/ (gravação atômica)
+  backups: 10           # backups de sessão mantidos
