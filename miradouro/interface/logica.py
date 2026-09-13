@@ -107,6 +107,7 @@ class Atalho:
     campo: str
     valor: str
     rotulo: str
+    alternar: bool = False  # multiopcao: a tecla liga/desliga o valor em vez de selecionar
 
 
 def mapa_de_atalhos(projeto: Projeto) -> tuple[dict[str, Atalho], list[str]]:
@@ -139,12 +140,26 @@ def mapa_de_atalhos(projeto: Projeto) -> tuple[dict[str, Atalho], list[str]]:
         for classe in projeto.legenda:
             registrar(prefixo + classe.tecla.lower(), Atalho(campo.nome, classe.codigo, classe.rotulo or classe.nome))
     for campo in projeto.campos:
-        if campo.tipo != "opcao":
+        if campo.tipo not in ("opcao", "multiopcao"):
             continue
         for op in campo.opcoes:
             if op.tecla:
-                registrar(op.tecla.lower(), Atalho(campo.nome, op.valor, op.rotulo or op.valor))
+                registrar(op.tecla.lower(), Atalho(campo.nome, op.valor, op.rotulo or op.valor, alternar=campo.tipo == "multiopcao"))
     return mapa, avisos
+
+
+def aplicar_atalho(rascunho: dict[str, Any], atalho: Atalho) -> dict[str, Any]:
+    """Aplica um atalho ao rascunho (in place e devolve): seleciona, ou alterna se ``alternar``."""
+    if atalho.alternar:
+        atual = [str(v) for v in (rascunho.get(atalho.campo) or [])] if isinstance(rascunho.get(atalho.campo), (list, tuple)) else ([str(rascunho[atalho.campo])] if rascunho.get(atalho.campo) else [])
+        if atalho.valor in atual:
+            atual = [v for v in atual if v != atalho.valor]
+        else:
+            atual = atual + [atalho.valor]
+        rascunho[atalho.campo] = atual
+    else:
+        rascunho[atalho.campo] = atalho.valor
+    return rascunho
 
 
 def tecla_do_valor(mapa: Mapping[str, Atalho], campo: str, valor: Any) -> str | None:
@@ -183,8 +198,33 @@ def campo_visivel(campo: Campo, rascunho: Mapping[str, Any]) -> bool:
     return campo.obrigatorio_se.satisfeita(rascunho.get(campo.obrigatorio_se.campo))
 
 
+def ordem_dos_campos(projeto: Projeto) -> list[Campo]:
+    """Campos na ordem de exibição: cada condicional vai logo abaixo do campo que o dispara.
+
+    Condicionais cujo gatilho vem depois deles no yaml (ou é outro condicional)
+    ficam onde estavam.
+    """
+    dependentes: dict[str, list[Campo]] = {}
+    for c in projeto.campos:
+        if c.obrigatorio_se is not None:
+            dependentes.setdefault(c.obrigatorio_se.campo, []).append(c)
+    movidos = {c.nome for lista in dependentes.values() for c in lista}
+    saida: list[Campo] = []
+    for c in projeto.campos:
+        if c.nome in movidos and c.obrigatorio_se.campo not in {x.nome for x in saida}:
+            continue  # será inserido logo após o gatilho
+        if c.nome in movidos:
+            continue
+        saida.append(c)
+        saida.extend(dependentes.get(c.nome, []))
+    for c in projeto.campos:  # gatilho inexistente na saída (ordem estranha): mantém no fim
+        if c not in saida:
+            saida.append(c)
+    return saida
+
+
 def campos_visiveis(projeto: Projeto, rascunho: Mapping[str, Any]) -> list[Campo]:
-    return [c for c in projeto.campos if campo_visivel(c, rascunho)]
+    return [c for c in ordem_dos_campos(projeto) if campo_visivel(c, rascunho)]
 
 
 def limpar_valores_ocultos(projeto: Projeto, rascunho: Mapping[str, Any]) -> dict[str, Any]:
@@ -194,10 +234,23 @@ def limpar_valores_ocultos(projeto: Projeto, rascunho: Mapping[str, Any]) -> dic
     for k, v in rascunho.items():
         if k not in visiveis:
             continue
-        if v is None or (isinstance(v, str) and not v.strip()):
+        if v is None or (isinstance(v, str) and not v.strip()) or (isinstance(v, (list, tuple)) and not v):
             continue
-        saida[k] = v.strip() if isinstance(v, str) else v
+        saida[k] = v.strip() if isinstance(v, str) else (list(v) if isinstance(v, tuple) else v)
     return saida
+
+
+def formatar_valor(valor: Any) -> str:
+    """Valor legível: listas viram ``a+b``."""
+    if isinstance(valor, (list, tuple)):
+        return "+".join(str(v) for v in valor) or "—"
+    return str(valor)
+
+
+def campo_do_erro(erro: str) -> str | None:
+    """Nome do campo a partir de uma mensagem de ``validar_resposta`` (``"campo: ..."``)."""
+    nome, sep, _ = erro.partition(":")
+    return nome.strip() if sep and " " not in nome.strip() else None
 
 
 # ---- filtros e navegação -----------------------------------------------------------

@@ -31,7 +31,7 @@ PROJETO_MINIMO: dict = {
                 {"valor": "baixa", "tecla": "B"},
             ],
         },
-        {"nome": "fonte", "tipo": "opcao", "opcoes": ["hr", "serie", "s2"]},
+        {"nome": "fonte", "tipo": "multiopcao", "opcoes": [{"valor": "hr", "tecla": "H"}, {"valor": "serie", "tecla": "N"}, {"valor": "sazonal", "tecla": "S"}]},
         {
             "nome": "classe_alt",
             "tipo": "classe",

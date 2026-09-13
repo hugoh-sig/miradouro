@@ -125,8 +125,11 @@ legenda:
       mesmo rala (→ 2).
 
 # ---- Campos de resposta -----------------------------------------------------
-# tipo: classe (um código da legenda) | opcao (lista fechada) | texto | numero | booleano
+# tipo: classe (um código da legenda) | opcao (lista fechada, um valor) |
+#       multiopcao (lista fechada, um ou mais valores; a tecla liga/desliga) |
+#       texto | numero | booleano
 # obrigatorio: true/false | obrigatorio_se: condição sobre outro campo
+#   (num campo multiopcao, `igual_a: hr` vale se a lista contém hr)
 campos:
   - nome: classe_ref
     tipo: classe
@@ -145,22 +148,31 @@ campos:
     ajuda: Baixa = vai para segunda interpretação independente.
 
   - nome: fonte_principal
-    tipo: opcao
-    rotulo: Fonte principal da decisão
-    obrigatorio: true
+    tipo: multiopcao
+    rotulo: Fontes da decisão
+    obrigatorio: true                   # ao menos uma; a decisão costuma vir da convergência
     opcoes:
       - {valor: hr, rotulo: Alta resolução, tecla: H}
       - {valor: serie, rotulo: Série NDVI, tecla: N}
-      - {valor: s2, rotulo: Sentinel-2 sazonal, tecla: S}
+      - {valor: sazonal, rotulo: Sentinel-2 sazonal, tecla: S}
+
+  - nome: ano_confirmado_ndvi
+    tipo: opcao
+    rotulo: Cobertura da imagem HR confirmada para 2023 pela série NDVI?
+    # O basemap não informa a data da imagem; o fato auditável é se a checagem
+    # pelo NDVI foi feita. Exigido sempre que a decisão usou a alta resolução.
+    obrigatorio_se: {campo: fonte_principal, igual_a: hr}
+    opcoes:
+      - {valor: sim, rotulo: "Sim, confirmada", tecla: C}
+      - {valor: nao, rotulo: Não foi possível confirmar, tecla: X}
 
   - nome: data_imagem_hr
     tipo: texto
     rotulo: Data da imagem de alta resolução (AAAA-MM)
-    # Obrigatória quando a decisão veio da alta resolução; `padrao` é uma regex
-    # que o texto precisa satisfazer.
-    obrigatorio_se: {campo: fonte_principal, igual_a: hr}
+    # Opcional: só preencha se consultou uma fonte datada (ex.: Google Earth Pro).
+    # O basemap Esri não expõe a data; não estime uma.
     padrao: '[12][0-9]{3}-(0[1-9]|1[0-2])'
-    ajuda: Se a imagem for de outro ano, confirme com a série NDVI que a cobertura era a mesma em 2023.
+    ajuda: Só se você consultou uma imagem com data conhecida. O basemap Esri não informa a data.
 
   - nome: classe_alternativa
     tipo: classe

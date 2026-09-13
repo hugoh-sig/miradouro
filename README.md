@@ -61,18 +61,24 @@ legenda:                              # codigo, nome, rotulo, descricao, tecla, 
      descricao: "Dossel irregular, textura couve-flor..."}
   - {codigo: 2, nome: pastagem, tecla: "2", cor: "#fee08b"}
 
-campos:                               # tipos: classe | opcao | texto | numero | booleano
+campos:                               # tipos: classe | opcao | multiopcao | texto | numero | booleano
   - {nome: classe_ref, tipo: classe, obrigatorio: true}
   - nome: confianca
     tipo: opcao
     obrigatorio: true
     opcoes: [{valor: alta, tecla: A}, {valor: media, tecla: M}, {valor: baixa, tecla: B}]
-  - {nome: fonte_principal, tipo: opcao, obrigatorio: true, opcoes: [hr, serie, s2]}
+  - nome: fonte_principal                # multiopcao: uma ou mais; a tecla liga/desliga
+    tipo: multiopcao
+    obrigatorio: true
+    opcoes: [{valor: hr, tecla: H}, {valor: serie, tecla: N}, {valor: sazonal, tecla: S}]
   - nome: classe_alternativa
     tipo: classe
     obrigatorio_se: {campo: confianca, diferente_de: alta}   # condicional
-  - {nome: data_imagem_hr, tipo: texto, padrao: "[0-9]{4}-[0-9]{2}",
-     obrigatorio_se: {campo: fonte_principal, igual_a: hr}}  # regex opcional
+  - nome: ano_confirmado_ndvi                                 # num multiopcao, igual_a = "contém"
+    tipo: opcao
+    opcoes: [{valor: sim, tecla: C}, {valor: nao, tecla: X}]
+    obrigatorio_se: {campo: fonte_principal, igual_a: hr}
+  - {nome: data_imagem_hr, tipo: texto, padrao: "[0-9]{4}-[0-9]{2}"}   # regex opcional
   - {nome: observacao, tipo: texto}
 
 chips:
@@ -131,7 +137,8 @@ atual ocupam a tela; o formulário fica na barra lateral.
 |---|---|
 | teclas da legenda (ex.: `1`–`8`) | classe de referência |
 | `⇧` + tecla da legenda | classe alternativa (segundo campo do tipo `classe`) |
-| teclas das opções (ex.: `A`/`M`/`B`, `H`/`N`/`S`) | campos de opção (confiança, fonte...) |
+| teclas das opções (ex.: `A`/`M`/`B`) | campos de opção (escolha única) |
+| teclas de um `multiopcao` (ex.: `H`/`N`/`S`) | ligam/desligam cada valor (fontes da decisão) |
 | `Enter` | valida, grava e avança para o próximo ponto |
 | `←` `→` | ponto anterior / próximo (dentro do modo atual) |
 | `U` | desfaz a última confirmação e volta ao ponto |
@@ -142,20 +149,23 @@ As teclas vêm do `projeto.yaml`; a barra lateral mostra `[tecla] rótulo` em ca
 avisa se alguma tecla conflita com outra ou com as reservadas.
 
 **Campos condicionais** (`obrigatorio_se`) só aparecem, e só são exigidos, quando a
-condição vale: no Paraopeba, `data_imagem_hr` surge ao escolher fonte = alta resolução e
-`classe_alternativa` quando a confiança não é alta. `Enter` recusa a resposta e lista o que
-falta.
+condição vale, e ficam logo abaixo do campo que os dispara: no Paraopeba,
+`ano_confirmado_ndvi` surge ao ligar a fonte alta resolução e `classe_alternativa` quando a
+confiança não é alta. `Enter` recusa a resposta, lista o que falta e rola até o primeiro
+campo faltante. Como o basemap não informa a data da imagem, `data_imagem_hr` é opcional:
+o que se audita é se a cobertura foi confirmada para o ano de referência pela série NDVI.
 
 **Modos.** *Pendentes* (padrão) percorre só os pontos sem resposta e abre no primeiro
 deles, também ao reabrir a interface. *Todos* permite rever qualquer ponto. *Revisão*
 lista os pontos respondidos com confiança baixa (configurável em `interface.revisao` do
 yaml) para a segunda passada; a resposta anterior aparece e o rascunho já vem preenchido.
 
-**Autosave e auditoria.** Cada `Enter` grava via o núcleo (arquivo atômico + backup por
-sessão). Além dos metadados do Sprint 1, a interface registra em `meta`: `duracao_s`
-(cronômetro por ponto, somando visitas), `modo`, `interface` e, quando faltou chip,
-`sem_subsidio` com os provedores ausentes. Um ponto sem chip mostra aviso e pode ser
-pulado (`→`) ou respondido mesmo assim.
+**Autosave e auditoria.** Cada `Enter` grava via o núcleo (arquivo atômico). Além dos
+metadados do Sprint 1, a interface registra em `meta`: `duracao_s` (cronômetro por ponto,
+somando visitas; pausa quando nenhum ponto está carregado), `modo`, `interface` e, quando
+faltou chip, `sem_subsidio` com os provedores ausentes. Um ponto sem chip mostra aviso e
+pode ser pulado (`→`) ou respondido mesmo assim. Quando a lista do modo se esvazia (último
+pendente ou última revisão gravada), a interface descarrega o ponto e avisa.
 
 **Cegueira.** As `colunas_ocultas` nunca chegam ao navegador: nem na tela, nem em
 tooltip, título ou URL. Há teste automatizado disso (`tests/test_app.py`) que varre tudo o
@@ -179,8 +189,17 @@ arm.pendentes(pontos.ids)                # o que falta
 `respostas/respostas.json` é reescrito inteiro a cada gravação via temporário + `rename`
 (nunca fica meio escrito). Cada resposta guarda intérprete, sessão, timestamps de
 criação/atualização, número de revisões, versão do MIRADOURO e o SHA-256 do yaml em vigor.
-Se o arquivo corromper, `Armazenamento.recuperar_de_backup(pasta)` restaura o backup
-legível mais recente.
+
+**Backups.** São criados **na abertura de cada sessão** (`abrir_sessao()`), não a cada
+gravação, e contêm o estado *anterior* à sessão, em `respostas/backups/`. A primeira sessão
+de um projeto não gera backup porque ainda não existe arquivo; a rotação mantém os
+`saida.backups` mais recentes. Se o arquivo corromper,
+`Armazenamento.recuperar_de_backup(pasta)` restaura o backup legível mais recente.
+
+**Compatibilidade de formato.** Os valores são normalizados pelo tipo do campo no yaml em
+vigor, tanto ao ler quanto ao gravar. Um campo que virou `multiopcao` lê respostas antigas
+com string (`"hr"`) como lista (`["hr"]`) e sempre grava lista; o arquivo não precisa de
+migração.
 
 ## Desenvolvimento
 

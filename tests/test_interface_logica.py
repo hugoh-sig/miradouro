@@ -54,8 +54,10 @@ def test_mapa_de_atalhos_paraopeba(paraopeba):
         assert mapa[f"shift+{i}"].campo == "classe_alternativa" and mapa[f"shift+{i}"].valor == str(i)
     assert mapa["a"] == lg.Atalho("confianca", "alta", "Alta")
     assert mapa["m"].valor == "media" and mapa["b"].valor == "baixa"
-    assert mapa["h"].campo == "fonte_principal" and mapa["h"].valor == "hr"
-    assert mapa["n"].valor == "serie" and mapa["s"].valor == "s2"
+    assert mapa["h"] == lg.Atalho("fonte_principal", "hr", "Alta resolução", alternar=True)
+    assert mapa["n"].valor == "serie" and mapa["s"].valor == "sazonal" and mapa["s"].alternar
+    assert mapa["c"] == lg.Atalho("ano_confirmado_ndvi", "sim", "Sim, confirmada") and mapa["x"].valor == "nao"
+    assert not mapa["a"].alternar
     assert lg.tecla_do_valor(mapa, "classe_alternativa", "3") == "shift+3"
     assert lg.rotulo_com_tecla(mapa, "classe_alternativa", "3", "X") == "[⇧3] X"
     assert lg.rotulo_com_tecla(mapa, "confianca", "alta", "Alta") == "[A] Alta"
@@ -74,6 +76,25 @@ def test_mapa_avisa_conflitos_e_reservadas(dados_projeto):
     assert any("classe_3" in a and "só mouse" in a for a in avisos)
 
 
+def test_aplicar_atalho_alterna_multiopcao(paraopeba):
+    mapa, _ = lg.mapa_de_atalhos(paraopeba)
+    r: dict = {}
+    lg.aplicar_atalho(r, mapa["h"])
+    assert r == {"fonte_principal": ["hr"]}
+    lg.aplicar_atalho(r, mapa["n"])
+    assert r["fonte_principal"] == ["hr", "serie"]
+    lg.aplicar_atalho(r, mapa["h"])  # desliga
+    assert r["fonte_principal"] == ["serie"]
+    lg.aplicar_atalho(r, mapa["n"])
+    assert r["fonte_principal"] == []
+    r["fonte_principal"] = "sazonal"  # rascunho vindo de resposta antiga (string)
+    lg.aplicar_atalho(r, mapa["h"])
+    assert r["fonte_principal"] == ["sazonal", "hr"]
+    lg.aplicar_atalho(r, mapa["2"])  # seleção simples continua substituindo
+    lg.aplicar_atalho(r, mapa["3"])
+    assert r["classe_ref"] == "3"
+
+
 def test_interpretar_tecla(paraopeba):
     mapa, _ = lg.mapa_de_atalhos(paraopeba)
     assert lg.interpretar_tecla("enter", mapa) == ("acao", "confirmar")
@@ -89,21 +110,40 @@ def test_interpretar_tecla(paraopeba):
 
 def test_campos_condicionais_aparecem_so_quando_exigidos(paraopeba):
     nomes = lambda r: [c.nome for c in lg.campos_visiveis(paraopeba, r)]  # noqa: E731
-    assert "data_imagem_hr" not in nomes({}) and "classe_alternativa" not in nomes({})
-    assert "data_imagem_hr" in nomes({"fonte_principal": "hr"})
-    assert "data_imagem_hr" not in nomes({"fonte_principal": "serie"})
+    assert nomes({}) == ["classe_ref", "confianca", "fonte_principal", "data_imagem_hr", "observacao"]
+    assert "ano_confirmado_ndvi" in nomes({"fonte_principal": ["hr", "serie"]})
+    assert "ano_confirmado_ndvi" in nomes({"fonte_principal": "hr"})
+    assert "ano_confirmado_ndvi" not in nomes({"fonte_principal": ["serie", "sazonal"]})
     assert "classe_alternativa" in nomes({"confianca": "baixa"})
     assert "classe_alternativa" not in nomes({"confianca": "alta"})
 
 
+def test_condicionais_ficam_logo_abaixo_do_gatilho(paraopeba, dados_projeto):
+    ordem = [c.nome for c in lg.ordem_dos_campos(paraopeba)]
+    assert ordem == ["classe_ref", "confianca", "classe_alternativa", "fonte_principal", "ano_confirmado_ndvi", "data_imagem_hr", "observacao"]
+    assert [c.nome for c in lg.campos_visiveis(paraopeba, {"confianca": "media", "fonte_principal": ["hr"]})] == ordem
+    # Gatilho declarado depois do condicional: o condicional vai para logo após o gatilho mesmo assim.
+    dados_projeto["campos"].insert(0, dados_projeto["campos"].pop(3))  # classe_alt (gatilho confianca) vai para o início
+    p = projeto_de_dict(dados_projeto)
+    ordem2 = [c.nome for c in lg.ordem_dos_campos(p)]
+    assert ordem2.index("classe_alt") == ordem2.index("confianca") + 1 and len(ordem2) == len(p.campos)
+
+
 def test_limpar_valores_ocultos(paraopeba):
-    rascunho = {"classe_ref": "1", "confianca": "alta", "fonte_principal": "serie", "data_imagem_hr": "2023-01", "classe_alternativa": "2", "observacao": "  ", "campo_x": None}
-    assert lg.limpar_valores_ocultos(paraopeba, rascunho) == {"classe_ref": "1", "confianca": "alta", "fonte_principal": "serie"}
-    rascunho.update({"fonte_principal": "hr", "confianca": "baixa", "observacao": " ok "})
+    rascunho = {"classe_ref": "1", "confianca": "alta", "fonte_principal": ["serie"], "ano_confirmado_ndvi": "sim", "classe_alternativa": "2", "observacao": "  ", "data_imagem_hr": "", "campo_x": None}
+    assert lg.limpar_valores_ocultos(paraopeba, rascunho) == {"classe_ref": "1", "confianca": "alta", "fonte_principal": ["serie"]}
+    rascunho.update({"fonte_principal": ("hr", "serie"), "confianca": "baixa", "observacao": " ok ", "data_imagem_hr": "2023-01"})
     assert lg.limpar_valores_ocultos(paraopeba, rascunho) == {
-        "classe_ref": "1", "confianca": "baixa", "fonte_principal": "hr", "data_imagem_hr": "2023-01",
-        "classe_alternativa": "2", "observacao": "ok",
+        "classe_ref": "1", "confianca": "baixa", "fonte_principal": ["hr", "serie"], "ano_confirmado_ndvi": "sim",
+        "data_imagem_hr": "2023-01", "classe_alternativa": "2", "observacao": "ok",
     }
+    assert lg.limpar_valores_ocultos(paraopeba, {"fonte_principal": []}) == {}
+
+
+def test_formatar_valor_e_campo_do_erro():
+    assert lg.formatar_valor(["hr", "serie"]) == "hr+serie" and lg.formatar_valor([]) == "—" and lg.formatar_valor("x") == "x"
+    assert lg.campo_do_erro("data_hr: obrigatório quando fonte = hr") == "data_hr"
+    assert lg.campo_do_erro("campo desconhecido: 'x'") is None
 
 
 # ---- filtros e navegação ---------------------------------------------------------------
@@ -121,6 +161,27 @@ def test_ordem_visivel():
     assert lg.ordem_visivel(IDS, RESP, "revisao", None) == []
     with pytest.raises(ValueError):
         lg.ordem_visivel(IDS, RESP, "outro")
+
+
+def test_lista_de_revisao_esvaziada_apos_gravacao():
+    """Item 3 do teste de aceitação: o último ponto em revisão deixa de ter confiança baixa."""
+    respostas = {"b": {"classe_ref": "1", "confianca": "baixa"}, "d": {"classe_ref": "2", "confianca": "alta"}}
+    ordem = lg.ordem_visivel(IDS, respostas, "revisao", COND)
+    assert ordem == ["b"] and lg.posicao(ordem, "b") == (1, 1)
+    respostas["b"] = {"classe_ref": "1", "confianca": "alta"}  # gravação na revisão
+    ordem = lg.ordem_visivel(IDS, respostas, "revisao", COND)
+    assert ordem == []
+    assert lg.vizinho(ordem, IDS, "b", +1) is None and "b" not in ordem  # → a interface descarrega o ponto
+    assert lg.posicao(ordem, None) == (0, 0)
+    # Cronômetro: descarregar pausa a contagem; nada é atribuído a um ponto descarregado.
+    t = [0.0]
+    cron = lg.Cronometro(relogio=lambda: t[0])
+    cron.ir_para("b")
+    t[0] = 20.0
+    cron.zerar("b")
+    cron.ir_para(None)
+    t[0] = 60.0
+    assert cron.decorrido("b") == 0.0 and cron.decorrido() == 0.0
 
 
 def test_primeiro_pendente():

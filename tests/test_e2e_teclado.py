@@ -42,7 +42,6 @@ def _porta_livre() -> int:
 def servidor(tmp_path: Path):
     dados = copy.deepcopy(PROJETO_MINIMO)
     dados["pontos"]["colunas_ocultas"] = ["oculta"]
-    dados["campos"][2]["opcoes"] = [{"valor": "hr", "tecla": "H"}, {"valor": "serie", "tecla": "N"}, {"valor": "s2", "tecla": "S"}]
     y = tmp_path / "projeto.yaml"
     y.write_text(yaml.safe_dump(dados, allow_unicode=True), encoding="utf-8")
     (tmp_path / "pontos.csv").write_text(CSV, encoding="utf-8")
@@ -85,14 +84,14 @@ def test_teclado_real(servidor):
         pagina.wait_for_timeout(1500)  # componente de teclado monta
         pagina.mouse.click(700, 450)  # foco na página, fora de qualquer input
 
-        # Atalhos: classe 2, confiança alta, fonte série; Enter confirma e avança.
-        for tecla in ("2", "a", "n"):
+        # Atalhos: classe 2, confiança alta; H/N/S alternam as fontes (H duas vezes = desligado).
+        for tecla in ("2", "a", "h", "n", "s", "h"):
             pagina.keyboard.press(tecla)
             pagina.wait_for_timeout(700)
         assert pagina.get_by_text("[2] pasto").first.is_visible()
         pagina.keyboard.press("Enter")
         r = _respostas(arquivo, 1)
-        assert r["p1"]["valores"] == {"classe_ref": "2", "confianca": "alta", "fonte": "serie"}
+        assert r["p1"]["valores"] == {"classe_ref": "2", "confianca": "alta", "fonte": ["serie", "sazonal"]}
         pagina.get_by_text("PLOTID p2").wait_for(timeout=15000)
 
         # Texto: T foca a observação; letras digitadas lá NÃO viram atalhos; Enter grava o texto e confirma.
@@ -102,7 +101,7 @@ def test_teclado_real(servidor):
         pagina.wait_for_timeout(700)
         pagina.keyboard.press("t")
         pagina.wait_for_timeout(500)
-        pagina.keyboard.type("banhado 2 ha")  # contém 'b', 'a', 'h', '2' — nada deve mudar
+        pagina.keyboard.type("banhado hns 2 ha")  # contém b, a, h, n, s, 2 — nada deve mudar
         pagina.wait_for_timeout(300)
         pagina.keyboard.press("Enter")
         pagina.wait_for_timeout(1500)
@@ -116,7 +115,7 @@ def test_teclado_real(servidor):
         pagina.wait_for_timeout(700)
         pagina.keyboard.press("Enter")
         r = _respostas(arquivo, 2)
-        assert r["p2"]["valores"] == {"classe_ref": "6", "confianca": "media", "classe_alt": "1", "observacao": "banhado 2 ha"}
+        assert r["p2"]["valores"] == {"classe_ref": "6", "confianca": "media", "classe_alt": "1", "observacao": "banhado hns 2 ha"}
 
         # U desfaz a última (p2) e volta para ela.
         pagina.get_by_text("PLOTID p3").wait_for(timeout=15000)

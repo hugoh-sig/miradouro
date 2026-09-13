@@ -17,6 +17,16 @@ Formato do arquivo ``respostas.json`` (versão 1)::
 
 Toda gravação escreve o arquivo inteiro num temporário na mesma pasta e faz
 ``os.replace`` — o arquivo anterior nunca fica meio escrito.
+
+Backups (``backups/respostas_<timestamp>_<sessao>.json``): são feitos **na
+abertura de cada sessão** (:meth:`Armazenamento.abrir_sessao`), não a cada
+gravação, e contêm o estado *anterior* à sessão. A primeira sessão de um
+projeto não gera backup porque ainda não existe arquivo. A rotação mantém os
+``saida.backups`` mais recentes.
+
+Compatibilidade de valores: os valores gravados são normalizados pelo tipo do
+campo no yaml em vigor ao ler e ao gravar (:func:`normalizar_valores`); um
+campo que virou ``multiopcao`` lê respostas antigas com string como lista.
 """
 
 from __future__ import annotations
@@ -34,7 +44,7 @@ from typing import Any
 
 from miradouro import __version__
 from miradouro.core.erros import ErroArquivoCorrompido, ErroRespostas
-from miradouro.core.projeto import Projeto, validar_resposta
+from miradouro.core.projeto import Projeto, normalizar_valores, validar_resposta
 
 log = logging.getLogger(__name__)
 
@@ -184,7 +194,10 @@ class Armazenamento:
         return bool(gravado and self.projeto.hash_yaml and gravado != self.projeto.hash_yaml)
 
     def abrir_sessao(self) -> str:
-        """Inicia uma sessão: faz backup do arquivo atual e registra a sessão."""
+        """Inicia uma sessão: faz backup do arquivo atual (estado anterior à sessão) e a registra.
+
+        Sem arquivo prévio (primeira sessão) não há o que copiar e nenhum backup é criado.
+        """
         ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
         self.sessao_id = f"{ts}-{uuid.uuid4().hex[:6]}"
         if self.arquivo.exists():
@@ -250,6 +263,7 @@ class Armazenamento:
             ErroRespostas: se ``validar`` e os valores violam os campos do projeto.
         """
         plotid = str(plotid)
+        valores = normalizar_valores(self.projeto, valores)
         if validar:
             erros = validar_resposta(self.projeto, valores)
             if erros:
@@ -295,12 +309,17 @@ class Armazenamento:
 
     # ---- consultas ---------------------------------------------------------
 
+    def _resposta(self, plotid: str, d: dict[str, Any]) -> Resposta:
+        r = Resposta.de_dict(plotid, d)
+        r.valores = normalizar_valores(self.projeto, r.valores)
+        return r
+
     def obter(self, plotid: str) -> Resposta | None:
         d = self._dados["respostas"].get(str(plotid))
-        return Resposta.de_dict(str(plotid), d) if d else None
+        return self._resposta(str(plotid), d) if d else None
 
     def todas(self) -> dict[str, Resposta]:
-        return {pid: Resposta.de_dict(pid, d) for pid, d in self._dados["respostas"].items()}
+        return {pid: self._resposta(pid, d) for pid, d in self._dados["respostas"].items()}
 
     def respondidos(self) -> set[str]:
         return set(self._dados["respostas"])

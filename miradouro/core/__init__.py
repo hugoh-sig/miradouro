@@ -19,6 +19,7 @@ from miradouro.core.projeto import (
     OpcaoCampo,
     Projeto,
     carregar_projeto,
+    normalizar_valores,
     validar_resposta,
 )
 from miradouro.core.respostas import Armazenamento, Resposta, escrever_atomico
@@ -40,5 +41,6 @@ __all__ = [
     "carregar_pontos",
     "carregar_projeto",
     "escrever_atomico",
+    "normalizar_valores",
     "validar_resposta",
 ]

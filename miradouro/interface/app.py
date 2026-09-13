@@ -69,6 +69,8 @@ def _iniciar(projeto, pontos, interprete: str) -> None:
     ss.hist = lg.Historico()
     ss.ultimo_evento = None
     ss.erros = []
+    ss.focar = None  # {"id", "rotulo"}: o componente de teclado rola até o campo e o foca
+    ss.n_focar = 0
     ss.aviso = None
     ss.atual = lg.primeiro_pendente(pontos.ids, ss.arm.respondidos())
     ss.cron.ir_para(ss.atual)
@@ -123,6 +125,11 @@ def _confirmar(projeto, pontos) -> None:
     erros = validar_resposta(projeto, valores)
     if erros:
         ss.erros = erros
+        nome = lg.campo_do_erro(erros[0])
+        campo = projeto.campo(nome) if nome else None
+        if campo is not None:
+            ss.n_focar += 1
+            ss.focar = {"id": ss.n_focar, "rotulo": _rotulo_widget(campo)}
         return
     anterior = ss.arm.obter(pid)
     faltantes = lg.provedores_faltantes(lg.chips_do_ponto(ss.cache, projeto.provedores_habilitados(), pid))
@@ -134,13 +141,17 @@ def _confirmar(projeto, pontos) -> None:
     ss.rascunhos[pid] = dict(valores)
     ss.cron.zerar(pid)
     ss.erros = []
-    prox = lg.vizinho(_ordem(projeto, pontos), pontos.ids, pid, +1)
-    if prox is None:
-        ss.aviso = "Resposta gravada. Fim da lista neste modo."
-        if ss.filtro == "pendentes":
-            _ir_para(None)
-    else:
+    ordem = _ordem(projeto, pontos)
+    prox = lg.vizinho(ordem, pontos.ids, pid, +1)
+    if prox is not None:
         _ir_para(prox)
+    elif pid in ordem:
+        ss.aviso = "Resposta gravada. Era o último ponto da lista neste modo."
+        _ir_para(pid)  # continua na lista (modo todos): fica visível, cronômetro reinicia
+    else:
+        # O ponto saiu da lista (pendentes/revisão) e não há próximo: descarrega e pausa o cronômetro.
+        ss.aviso = "Resposta gravada. Não há mais pontos neste modo."
+        _ir_para(None)
 
 
 def _desfazer() -> None:
@@ -177,7 +188,7 @@ def _processar_evento(projeto, pontos, evento: dict | None) -> None:
     tipo, x = resultado
     if tipo == "atalho":
         if ss.atual is not None:
-            _rascunho(ss.atual)[x.campo] = x.valor
+            lg.aplicar_atalho(_rascunho(ss.atual), x)
             ss.erros = []
         return
     acoes = {
@@ -199,13 +210,17 @@ def _ao_mudar(pid: str, campo: str) -> None:
     ss.erros = []
 
 
+def _rotulo_widget(campo) -> str:
+    obrig = campo.obrigatorio or (campo.obrigatorio_se is not None)
+    return f"{campo.rotulo}{' *' if obrig else ''}"
+
+
 def _widget_campo(projeto, campo, pid: str) -> None:
     ss = st.session_state
     mapa = ss.mapa
     rascunho = _rascunho(pid)
     chave = f"f_{campo.nome}"
-    obrig = campo.obrigatorio or (campo.obrigatorio_se is not None)
-    rotulo = f"{campo.rotulo}{' *' if obrig else ''}"
+    rotulo = _rotulo_widget(campo)
     ajuda = campo.ajuda or None
     valor = rascunho.get(campo.nome)
 
@@ -222,6 +237,15 @@ def _widget_campo(projeto, campo, pid: str) -> None:
         ss[chave] = valor if valor in opcoes else None
         st.radio(
             rotulo, opcoes, key=chave, help=ajuda, horizontal=len(opcoes) <= 4,
+            format_func=lambda v: lg.rotulo_com_tecla(mapa, campo.nome, v, next(o.rotulo for o in campo.opcoes if o.valor == v)),
+            on_change=_ao_mudar, args=(pid, campo.nome),
+        )
+    elif campo.tipo == "multiopcao":
+        opcoes = [o.valor for o in campo.opcoes]
+        atuais = valor if isinstance(valor, list) else ([valor] if valor else [])
+        ss[chave] = [v for v in atuais if v in opcoes]
+        st.pills(
+            rotulo, opcoes, selection_mode="multi", key=chave, help=ajuda,
             format_func=lambda v: lg.rotulo_com_tecla(mapa, campo.nome, v, next(o.rotulo for o in campo.opcoes if o.valor == v)),
             on_change=_ao_mudar, args=(pid, campo.nome),
         )
@@ -252,6 +276,8 @@ def _render_sidebar(projeto, pontos, interprete: str) -> None:
         if pid is None:
             st.success("Nenhum ponto neste modo. Troque o modo ou encerre a sessão.")
         else:
+            if ss.erros:
+                st.error("\n".join(f"- {e}" for e in ss.erros))
             for campo in lg.campos_visiveis(projeto, _rascunho(pid)):
                 _widget_campo(projeto, campo, pid)
             classe_sel = next((_rascunho(pid).get(c.nome) for c in projeto.campos if c.tipo == "classe"), None)
@@ -260,8 +286,6 @@ def _render_sidebar(projeto, pontos, interprete: str) -> None:
                 with st.expander(f"Como reconhecer: {cls.rotulo}", expanded=False):
                     st.write(cls.descricao)
 
-            if ss.erros:
-                st.error("\n".join(f"- {e}" for e in ss.erros))
             c1, c2 = st.columns(2)
             c1.button("Confirmar ⏎", type="primary", width="stretch", on_click=_confirmar, args=(projeto, pontos))
             c2.button("Desfazer (U)", width="stretch", on_click=_desfazer)
@@ -310,7 +334,7 @@ def _render_principal(projeto, pontos) -> None:
 
     resposta = ss.arm.obter(pid)
     if resposta is not None:
-        resumo = " · ".join(f"{k} = {v}" for k, v in resposta.valores.items())
+        resumo = " · ".join(f"{k} = {lg.formatar_valor(v)}" for k, v in resposta.valores.items())
         st.success(f"Já respondido ({resposta.interprete}, {resposta.atualizado_em[:16].replace('T', ' ')}): {resumo}")
 
     provedores = projeto.provedores_habilitados()
@@ -369,9 +393,14 @@ def main() -> None:
         return
     _iniciar(projeto, pontos, interprete)
 
-    rotulos_texto = [c.rotulo + " *" if (c.obrigatorio or c.obrigatorio_se) else c.rotulo for c in projeto.campos if c.tipo in ("texto", "numero")]
-    evento = capturar_tecla(rotulos_texto=rotulos_texto)
+    rotulos_texto = [_rotulo_widget(c) for c in projeto.campos if c.tipo in ("texto", "numero")]
+    focar_antes = st.session_state.focar
+    evento = capturar_tecla(rotulos_texto=rotulos_texto, focar=focar_antes)
     _processar_evento(projeto, pontos, evento)
+    if st.session_state.focar != focar_antes:
+        # O componente já foi renderizado com o foco antigo: reexecuta uma vez para
+        # entregar o novo pedido de foco (o evento de teclado é deduplicado pelo id).
+        st.rerun()
 
     _render_sidebar(projeto, pontos, interprete)
     _render_principal(projeto, pontos)

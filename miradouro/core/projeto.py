@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Literal
 
@@ -30,7 +31,7 @@ from miradouro.core.erros import ErroProjeto
 # Nomes de coluna reservados ao CSV de pontos; nunca podem nomear um campo de resposta.
 COLUNAS_RESERVADAS = frozenset({"plotid", "lon", "lat"})
 
-TiposCampo = Literal["classe", "opcao", "texto", "numero", "booleano"]
+TiposCampo = Literal["classe", "opcao", "multiopcao", "texto", "numero", "booleano"]
 
 _RE_NOME = re.compile(r"^[a-z][a-z0-9_]*$")
 _RE_COR = re.compile(r"^#[0-9a-fA-F]{6}$")
@@ -128,14 +129,20 @@ class CondicaoCampo(_Modelo):
         return [str(x) for x in (v if isinstance(v, list) else [v])]
 
     def satisfeita(self, valor_do_campo: Any) -> bool:
-        """True quando a condição se aplica ao valor atual do campo referido."""
-        if valor_do_campo is None or valor_do_campo == "":
+        """True quando a condição se aplica ao valor atual do campo referido.
+
+        Para campos ``multiopcao`` (valor em lista) a semântica é de conjunto:
+        ``igual_a`` vale se a lista contém algum dos valores; ``diferente_de``
+        vale se não contém nenhum deles.
+        """
+        if valor_do_campo is None or valor_do_campo == "" or valor_do_campo == []:
             # Sem valor no campo condicionante, a condição não pode ser avaliada.
             return False
-        v = str(valor_do_campo)
+        atuais = {str(v) for v in valor_do_campo} if isinstance(valor_do_campo, (list, tuple, set)) else {str(valor_do_campo)}
+        alvo = set(self.valores())
         if self.igual_a is not None:
-            return v in self.valores()
-        return v not in self.valores()
+            return bool(atuais & alvo)
+        return not (atuais & alvo)
 
 
 class Campo(_Modelo):
@@ -173,9 +180,9 @@ class Campo(_Modelo):
     def _coerencia(self) -> Campo:
         if not self.rotulo:
             self.rotulo = self.nome
-        if self.tipo == "opcao":
+        if self.tipo in ("opcao", "multiopcao"):
             if not self.opcoes:
-                raise ValueError(f"campo {self.nome!r} do tipo 'opcao' precisa de `opcoes`")
+                raise ValueError(f"campo {self.nome!r} do tipo {self.tipo!r} precisa de `opcoes`")
             _sem_duplicatas([o.valor for o in self.opcoes], f"valores do campo {self.nome!r}")
             _sem_duplicatas(
                 [o.tecla.lower() for o in self.opcoes if o.tecla],
@@ -307,7 +314,7 @@ class Projeto(_Modelo):
     def _valores_validos(self, campo: Campo) -> set[str] | None:
         if campo.tipo == "classe":
             return {c.codigo for c in self.legenda}
-        if campo.tipo == "opcao":
+        if campo.tipo in ("opcao", "multiopcao"):
             return {o.valor for o in campo.opcoes}
         return None
 
@@ -419,7 +426,31 @@ def carregar_projeto(caminho: str | Path) -> Projeto:
 
 
 def _vazio(v: Any) -> bool:
-    return v is None or (isinstance(v, str) and v.strip() == "")
+    return v is None or (isinstance(v, str) and v.strip() == "") or (isinstance(v, (list, tuple)) and len(v) == 0)
+
+
+def _como_lista(v: Any) -> list[str]:
+    if v is None or v == "":
+        return []
+    if isinstance(v, (list, tuple, set)):
+        return [str(x) for x in v]
+    return [str(v)]
+
+
+def normalizar_valores(projeto: Projeto, valores: Mapping[str, Any]) -> dict[str, Any]:
+    """Normaliza valores pelo tipo do campo: ``multiopcao`` sempre vira lista.
+
+    É o que garante compatibilidade com respostas gravadas quando o campo ainda
+    era de escolha única (``"hr"`` → ``["hr"]``). Campos desconhecidos passam intactos.
+    """
+    saida: dict[str, Any] = {}
+    for nome, v in valores.items():
+        campo = projeto.campo(nome)
+        if campo is not None and campo.tipo == "multiopcao":
+            saida[nome] = _como_lista(v)
+        else:
+            saida[nome] = v
+    return saida
 
 
 def validar_resposta(projeto: Projeto, valores: dict[str, Any]) -> list[str]:
@@ -429,6 +460,7 @@ def validar_resposta(projeto: Projeto, valores: dict[str, Any]) -> list[str]:
         Lista de mensagens de erro (vazia quando a resposta é válida).
     """
     erros: list[str] = []
+    valores = normalizar_valores(projeto, valores)
     conhecidos = {c.nome for c in projeto.campos}
     for nome in valores:
         if nome not in conhecidos:
@@ -451,6 +483,13 @@ def validar_resposta(projeto: Projeto, valores: dict[str, Any]) -> list[str]:
         elif campo.tipo == "opcao":
             if str(valor) not in {o.valor for o in campo.opcoes}:
                 erros.append(f"{campo.nome}: opção inválida {valor!r}")
+        elif campo.tipo == "multiopcao":
+            validos = {o.valor for o in campo.opcoes}
+            invalidos = [v for v in valor if v not in validos]
+            if invalidos:
+                erros.append(f"{campo.nome}: opção inválida {invalidos}")
+            if len(set(valor)) != len(valor):
+                erros.append(f"{campo.nome}: valores repetidos")
         elif campo.tipo == "numero":
             try:
                 float(valor)

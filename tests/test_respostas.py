@@ -202,3 +202,36 @@ def test_projeto_sem_arquivo_usa_cwd(projeto_sem_arquivo, tmp_path, monkeypatch)
     arm = Armazenamento(projeto_sem_arquivo, interprete="x")
     arm.gravar("p1", {"classe_ref": "1", "confianca": "alta"})
     assert (tmp_path / "respostas" / "respostas.json").exists()
+
+
+def test_multiopcao_gravado_como_lista_e_string_antiga_lida_como_lista(projeto):
+    arm = _arm(projeto)
+    arm.gravar("p1", {"classe_ref": "1", "confianca": "alta", "fonte": "hr"})
+    dados = json.loads(arm.arquivo.read_text(encoding="utf-8"))
+    assert dados["respostas"]["p1"]["valores"]["fonte"] == ["hr"]
+    # Resposta gravada quando o campo era de escolha única (string no disco).
+    dados["respostas"]["p2"] = {**dados["respostas"]["p1"], "valores": {"classe_ref": "2", "confianca": "alta", "fonte": "serie"}}
+    arm.arquivo.write_text(json.dumps(dados), encoding="utf-8")
+    arm2 = _arm(projeto)
+    assert arm2.obter("p2").valores["fonte"] == ["serie"]
+    assert arm2.todas()["p2"].valores["fonte"] == ["serie"]
+    assert json.loads(arm.arquivo.read_text())["respostas"]["p2"]["valores"]["fonte"] == "serie"  # leitura não reescreve
+    arm2.gravar("p2", {"classe_ref": "2", "confianca": "alta", "fonte": ("serie", "hr")})
+    assert json.loads(arm.arquivo.read_text())["respostas"]["p2"]["valores"]["fonte"] == ["serie", "hr"]
+
+
+def test_backup_so_na_abertura_da_sessao_e_nunca_na_primeira(projeto):
+    """Semântica documentada: backup = estado anterior à sessão; primeira sessão sem backup."""
+    arm = _arm(projeto)
+    arm.abrir_sessao()  # primeira sessão: não há arquivo → sem backup
+    arm.gravar("p1", {"classe_ref": "1", "confianca": "alta"})
+    arm.gravar("p2", {"classe_ref": "2", "confianca": "alta"})
+    assert arm.listar_backups() == []  # gravar nunca cria backup
+    arm2 = _arm(projeto)
+    arm2.abrir_sessao()
+    backups = arm2.listar_backups()
+    assert len(backups) == 1
+    conteudo = json.loads(backups[0].read_text(encoding="utf-8"))
+    assert set(conteudo["respostas"]) == {"p1", "p2"} and len(conteudo["sessoes"]) == 1
+    arm2.gravar("p3", {"classe_ref": "1", "confianca": "alta"})
+    assert len(arm2.listar_backups()) == 1 and "p3" not in json.loads(backups[0].read_text())["respostas"]

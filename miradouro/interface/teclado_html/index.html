@@ -8,7 +8,21 @@
 (function () {
   const parentWin = window.parent;
   const parentDoc = parentWin.document;
-  let args = { rotulos_texto: [] };
+  let args = { rotulos_texto: [], focar: null };
+  let ultimoFoco = null;
+
+  // Rola até o widget cujo rótulo começa com `rotulo` e foca o primeiro controle dele.
+  function focarCampo(rotulo) {
+    const labels = Array.from(parentDoc.querySelectorAll('[data-testid="stWidgetLabel"]'));
+    const alvo = labels.find(function (el) { return (el.textContent || "").trim().indexOf(rotulo) === 0; });
+    if (!alvo) return;
+    const widget = alvo.closest('[data-testid]') && alvo.parentElement ? alvo.parentElement : alvo;
+    alvo.scrollIntoView({ behavior: "smooth", block: "center" });
+    widget.style.outline = "2px solid #e34948"; widget.style.borderRadius = "6px";
+    setTimeout(function () { widget.style.outline = ""; }, 2500);
+    const controle = widget.querySelector('input[type="text"], textarea');
+    if (controle) { controle.focus(); }
+  }
   let seq = 0;
   const mountId = Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 6);
 
@@ -62,7 +76,13 @@
 
   window.addEventListener("message", function (ev) {
     const d = ev.data || {};
-    if (d.type === "streamlit:render" && d.args) { args = d.args; }
+    if (d.type === "streamlit:render" && d.args) {
+      args = d.args;
+      if (args.focar && args.focar.id !== ultimoFoco) {
+        ultimoFoco = args.focar.id;
+        setTimeout(function () { focarCampo(args.focar.rotulo); }, 150);
+      }
+    }
   });
   post("streamlit:componentReady", { apiVersion: 1 });
   post("streamlit:setFrameHeight", { height: 0 });

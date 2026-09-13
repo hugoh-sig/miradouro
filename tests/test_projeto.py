@@ -3,8 +3,8 @@ from pathlib import Path
 import pytest
 import yaml
 
-from miradouro.core import ErroProjeto, carregar_projeto, validar_resposta
-from miradouro.core.projeto import projeto_de_dict
+from miradouro.core import ErroProjeto, carregar_projeto, normalizar_valores, validar_resposta
+from miradouro.core.projeto import CondicaoCampo, projeto_de_dict
 
 
 def test_carrega_projeto_valido(projeto, pasta_projeto):
@@ -103,6 +103,39 @@ def test_projetos_invalidos(dados_projeto, alteracao, trecho):
     assert trecho in str(exc.value)
 
 
+def test_multiopcao_validacao_e_normalizacao(projeto):
+    base = {"classe_ref": "1", "confianca": "alta"}
+    assert validar_resposta(projeto, {**base, "fonte": ["hr", "serie"]}) == []
+    assert validar_resposta(projeto, {**base, "fonte": "hr"}) == []  # string antiga é aceita
+    assert validar_resposta(projeto, {**base, "fonte": []}) == []  # opcional
+    assert validar_resposta(projeto, {**base, "fonte": ["hr", "hr"]}) == ["fonte: valores repetidos"]
+    assert validar_resposta(projeto, {**base, "fonte": ["hr", "x", "y"]}) == ["fonte: opção inválida ['x', 'y']"]
+    assert normalizar_valores(projeto, {"fonte": "hr", "classe_ref": "1"}) == {"fonte": ["hr"], "classe_ref": "1"}
+    assert normalizar_valores(projeto, {"fonte": "", "outro": 3}) == {"fonte": [], "outro": 3}
+    assert normalizar_valores(projeto, {"fonte": ("hr", "serie")}) == {"fonte": ["hr", "serie"]}
+
+
+def test_multiopcao_obrigatorio_e_condicao_de_conjunto(dados_projeto):
+    dados_projeto["campos"][2]["obrigatorio"] = True
+    dados_projeto["campos"].append({"nome": "conf_ndvi", "tipo": "opcao", "opcoes": ["sim", "nao"], "obrigatorio_se": {"campo": "fonte", "igual_a": "hr"}})
+    p = projeto_de_dict(dados_projeto)
+    base = {"classe_ref": "1", "confianca": "alta"}
+    assert validar_resposta(p, {**base, "fonte": []}) == ["fonte: obrigatório"]
+    assert validar_resposta(p, {**base, "fonte": ["serie"]}) == []
+    assert validar_resposta(p, {**base, "fonte": ["serie", "hr"]}) == ["conf_ndvi: obrigatório quando fonte = hr"]
+    assert validar_resposta(p, {**base, "fonte": ["hr"], "conf_ndvi": "sim"}) == []
+    cond = CondicaoCampo(campo="fonte", diferente_de="hr")
+    assert cond.satisfeita(["serie"]) and not cond.satisfeita(["serie", "hr"]) and not cond.satisfeita([])
+    cond2 = CondicaoCampo(campo="fonte", igual_a=["hr", "sazonal"])
+    assert cond2.satisfeita(["sazonal"]) and not cond2.satisfeita(["serie"])
+
+
+def test_multiopcao_precisa_de_opcoes(dados_projeto):
+    dados_projeto["campos"][2]["opcoes"] = []
+    with pytest.raises(ErroProjeto, match="precisa de `opcoes`"):
+        projeto_de_dict(dados_projeto)
+
+
 def test_padrao_de_texto(dados_projeto):
     dados_projeto["campos"].append({"nome": "data_hr", "tipo": "texto", "padrao": r"[0-9]{4}-(0[1-9]|1[0-2])"})
     p = projeto_de_dict(dados_projeto)
@@ -192,7 +225,7 @@ def test_resposta_valores_invalidos(projeto):
     )
     assert "classe_ref: código de classe inválido '9'" in erros
     assert "confianca: opção inválida 'altíssima'" in erros
-    assert "fonte: opção inválida 'gps'" in erros
+    assert "fonte: opção inválida ['gps']" in erros
     assert "cobertura_pct: valor numérico inválido 'muito'" in erros
     assert "revisar: valor booleano inválido 'talvez'" in erros
     assert "observacao: deve ser texto" in erros
@@ -217,14 +250,21 @@ def test_exemplos_do_repositorio_validam():
     assert [c.tecla for c in para.legenda] == [str(i) for i in range(1, 9)]
     assert {"estrato_classe", "faixa_rio", "conjunto"} <= para.colunas_ocultas
     assert para.campo("classe_alternativa").obrigatorio_se.campo == "confianca"
+    fonte = para.campo("fonte_principal")
+    assert fonte.tipo == "multiopcao" and fonte.obrigatorio
+    assert [o.valor for o in fonte.opcoes] == ["hr", "serie", "sazonal"] and [o.tecla for o in fonte.opcoes] == ["H", "N", "S"]
+    conf = para.campo("ano_confirmado_ndvi")
+    assert conf.tipo == "opcao" and conf.obrigatorio_se.campo == "fonte_principal" and conf.obrigatorio_se.igual_a == "hr"
+    assert [o.tecla for o in conf.opcoes] == ["C", "X"]
     data_hr = para.campo("data_imagem_hr")
-    assert data_hr.tipo == "texto" and data_hr.obrigatorio_se.campo == "fonte_principal"
-    assert data_hr.obrigatorio_se.igual_a == "hr" and data_hr.padrao
-    base = {"classe_ref": "1", "confianca": "alta", "fonte_principal": "hr"}
-    assert validar_resposta(para, base) == ["data_imagem_hr: obrigatório quando fonte_principal = hr"]
-    assert validar_resposta(para, {**base, "data_imagem_hr": "2023-08"}) == []
-    assert validar_resposta(para, {**base, "data_imagem_hr": "ago/2023"}) != []
-    assert validar_resposta(para, {**base, "fonte_principal": "serie"}) == []
+    assert data_hr.tipo == "texto" and not data_hr.obrigatorio and data_hr.obrigatorio_se is None and data_hr.padrao
+    base = {"classe_ref": "1", "confianca": "alta"}
+    assert validar_resposta(para, base) == ["fonte_principal: obrigatório"]
+    assert validar_resposta(para, {**base, "fonte_principal": ["serie", "sazonal"]}) == []
+    assert validar_resposta(para, {**base, "fonte_principal": ["hr", "serie"]}) == ["ano_confirmado_ndvi: obrigatório quando fonte_principal = hr"]
+    assert validar_resposta(para, {**base, "fonte_principal": ["hr"], "ano_confirmado_ndvi": "sim"}) == []
+    assert validar_resposta(para, {**base, "fonte_principal": "hr", "ano_confirmado_ndvi": "nao", "data_imagem_hr": "2023-08"}) == []
+    assert validar_resposta(para, {**base, "fonte_principal": ["serie"], "data_imagem_hr": "ago/2023"}) != []
     assert set(para.provedores_habilitados()) == {"s2_sazonal", "ndvi_serie", "esri_basemap"}
 
 

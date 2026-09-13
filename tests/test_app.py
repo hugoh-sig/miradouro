@@ -82,6 +82,10 @@ def _radio(at: AppTest, rotulo: str):
     return next(r for r in at.radio if r.label.startswith(rotulo))
 
 
+def _pills(at: AppTest, rotulo: str):
+    return next(w for w in at.get("button_group") if w.label.startswith(rotulo))
+
+
 def _botao(at: AppTest, rotulo: str):
     return next(b for b in at.button if rotulo in b.label)
 
@@ -124,8 +128,11 @@ def test_abre_no_primeiro_pendente_e_responde(projeto_app):
 
     _radio(at, "classe_ref").set_value("1").run()
     _radio(at, "confianca").set_value("alta").run()
-    _radio(at, "fonte").set_value("hr").run()
+    _pills(at, "fonte").set_value(["serie", "hr"]).run()
     assert any(t.label.startswith("data_hr") for t in at.text_input)  # apareceu
+    # O condicional vem logo abaixo do gatilho (fonte), antes da observação.
+    rotulos = [w.label for w in list(at.get("button_group")) + list(at.text_input)]
+    assert rotulos.index("fonte") < rotulos.index("data_hr *") < rotulos.index("observacao")
     _botao(at, "Confirmar").click().run()
     assert "data_hr: obrigatório quando fonte = hr" in at.error[0].value
 
@@ -133,7 +140,7 @@ def test_abre_no_primeiro_pendente_e_responde(projeto_app):
     _botao(at, "Confirmar").click().run()
     assert not at.error
     r = _respostas(projeto_app)["p1"]
-    assert r["valores"] == {"classe_ref": "1", "confianca": "alta", "fonte": "hr", "data_hr": "2023-07"}
+    assert r["valores"] == {"classe_ref": "1", "confianca": "alta", "fonte": ["serie", "hr"], "data_hr": "2023-07"}
     assert r["interprete"] == "tester" and r["meta"]["modo"] == "pendentes"
     assert "duracao_s" in r["meta"] and r["meta"]["sem_subsidio"] == ["esri_basemap"]  # p1 tem só o chip S2
     # Avançou para o próximo pendente e o progresso subiu.
@@ -215,6 +222,45 @@ def test_desfazer_remove_ou_restaura(projeto_app):
     assert r["valores"]["confianca"] == "alta" and r["meta"] == {"desfeito": True}
 
 
+def test_revisao_esvaziada_descarrega_ponto(projeto_app):
+    at = _app()
+    _radio(at, "classe_ref").set_value("1").run()
+    _radio(at, "confianca").set_value("baixa").run()
+    _radio(at, "classe_alt").set_value("2").run()
+    _botao(at, "Confirmar").click().run()
+    _radio(at, "Modo").set_value("revisao").run()
+    assert at.subheader[0].value.startswith("PLOTID p1 · ponto 1 de 1")
+    _radio(at, "confianca").set_value("alta").run()
+    _botao(at, "Confirmar").click().run()
+    # Lista vazia: nenhum ponto carregado, nenhum cronômetro, mensagem clara.
+    assert not at.subheader and not any("⏱" in c.value for c in at.caption)
+    assert any("Não há mais pontos neste modo" in i.value for i in at.info)
+    assert any("Nenhum ponto neste modo" in s.value for s in at.success)
+    assert not at.radio[1:]  # só o rádio de modo; nenhum formulário
+    # Voltar ao modo todos recarrega um ponto normalmente.
+    _radio(at, "Modo").set_value("todos").run()
+    assert at.subheader[0].value.startswith("PLOTID p1")
+
+
+def test_resposta_antiga_com_string_pre_preenche_lista(projeto_app):
+    import json as _json
+
+    at = _app()
+    _radio(at, "classe_ref").set_value("1").run()
+    _radio(at, "confianca").set_value("alta").run()
+    _botao(at, "Confirmar").click().run()
+    arquivo = projeto_app.parent / "respostas" / "respostas.json"
+    d = _json.loads(arquivo.read_text())
+    d["respostas"]["p1"]["valores"]["fonte"] = "serie"  # formato antigo (escolha única)
+    arquivo.write_text(_json.dumps(d))
+    at2 = _app()  # abre em p2 (pendente); volta a p1 no modo todos
+    _radio(at2, "Modo").set_value("todos").run()
+    _botao(at2, "Anterior").click().run()
+    assert at2.subheader[0].value.startswith("PLOTID p1")
+    assert _pills(at2, "fonte").value == ["serie"]
+    assert any("fonte = serie" in s.value for s in at2.success)
+
+
 def test_limpar_e_navegacao_nos_limites(projeto_app):
     at = _app()
     _radio(at, "classe_ref").set_value("6").run()
@@ -232,9 +278,14 @@ def test_limpar_e_navegacao_nos_limites(projeto_app):
 def test_teclado_simulado_via_evento(projeto_app, monkeypatch):
     """Simula o componente de teclado devolvendo eventos ao Python."""
     eventos: list[dict | None] = [None]
+    focos: list[dict | None] = []
     from miradouro.interface import teclado
 
-    monkeypatch.setattr(teclado, "capturar_tecla", lambda rotulos_texto=None: eventos[-1])
+    def falso(rotulos_texto=None, focar=None):
+        focos.append(focar)
+        return eventos[-1]
+
+    monkeypatch.setattr(teclado, "capturar_tecla", falso)
     at = _app()
 
     def tecla(key, code, shift=False):
@@ -247,9 +298,20 @@ def test_teclado_simulado_via_evento(projeto_app, monkeypatch):
     tecla("b", "KeyB")
     assert _radio(at, "confianca").value == "baixa"
     assert _radio(at, "classe_alt").value == "2"
+    # Multiopção: H/N/S alternam.
+    tecla("h", "KeyH")
+    tecla("n", "KeyN")
+    assert _pills(at, "fonte").value == ["hr", "serie"]
+    tecla("h", "KeyH")
+    assert _pills(at, "fonte").value == ["serie"]
+    # Recusa por campo vazio pede foco no campo faltante.
+    tecla("h", "KeyH")
+    tecla("Enter", "Enter")
+    assert "data_hr: obrigatório" in at.error[0].value and focos[-1] == {"id": 1, "rotulo": "data_hr *"}
+    tecla("h", "KeyH")  # desliga hr de novo → data_hr some e não é exigido
     tecla("Enter", "Enter")
     r = _respostas(projeto_app)["p1"]
-    assert r["valores"] == {"classe_ref": "2", "confianca": "baixa", "classe_alt": "2"}
+    assert r["valores"] == {"classe_ref": "2", "confianca": "baixa", "classe_alt": "2", "fonte": ["serie"]}
     assert at.subheader[0].value.startswith("PLOTID p2")
     tecla("ArrowLeft", "ArrowLeft")  # no modo pendentes p1 já não está na lista: fica em p2
     assert at.subheader[0].value.startswith("PLOTID p2") and any("Início da lista" in i.value for i in at.info)
