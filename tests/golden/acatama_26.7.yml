@@ -1,0 +1,40 @@
+# Golden file: formato do arquivo de configuração do AcATaMa 26.7 que o exportador
+# reproduz. Referência: AcATaMa/core/config.py (release 26.7, repositório
+# https://github.com/SMByC/AcATaMa). "save Lnn" = linha da função save() que grava a
+# chave; "restore Lnn" = linha da função restore() que a lê. "OBRIGATÓRIA" = restore lê
+# sem checar existência (KeyError aborta o restore ANTES de restaurar os rótulos).
+# Valores aqui são de exemplo; o teste compara chaves, ordem e tipos, não valores.
+general:                                   # save L93; restore L344-346 (só config_file_version)
+  config_file_version: '26.7'              # OBRIGATÓRIA (senão vira 191121, formato legado)
+  generated_by: miradouro 0.1.0            # extra do miradouro; ignorada pelo plugin
+  generated_at: '2026-09-13T00:00:00+00:00'
+  project: Exemplo
+thematic_map:                              # save L96-102
+  path: /abs/mapa.tif                      # OBRIGATÓRIA (restore L393); absoluto ou relativo ao yml (get_restore_path L331)
+  band: 1                                  # int; restore L404-405 (opcional)
+  nodata: '255'                            # OBRIGATÓRIA (restore L407 → set_nodata_format faz float(); null quebra). save grava o texto do campo (str)
+sampling_layer: /abs/exemplo_pontos.geojson  # save L241; restore L604-606. Absoluto: 26.7 não carregou o relativo (smoke 2026-09-13)
+dialog_size: null                          # OBRIGATÓRIA (restore L622); save L245; null = tamanho padrão (response_design_window L105)
+response_design_grid_settings_first_open: false  # save L246; restore L616-619 (opcional)
+grid_view_widgets:                         # OBRIGATÓRIA (restore L620-624); save L247
+  columns: 2
+  rows: 1
+current_sample_idx: 0                      # OBRIGATÓRIA (restore L625); save L248
+sampling_unit_pixel_buffer: 0              # save L249; restore L626-627 (opcional)
+sampling_unit_color: '#FF0000'             # save L250; restore L628-629 (opcional; QColor)
+fit_to_sample: 0.0011                      # OBRIGATÓRIA (restore L630); save L251; raio por unidade do CRS (response_design.py L53-63): graus 0.0011, metros 120
+is_completed: true                         # OBRIGATÓRIA (restore L631); save L252; recalculado por reload_labeling_status (restore L681)
+view_widgets_config: {}                    # OBRIGATÓRIA (restore L635, L644-652 itera .values()); save L253
+labeling_buttons:                          # OBRIGATÓRIA (restore L633); save L254; {label_id: {name, color, thematic_class, shortcut}}
+  1:
+    name: classe_a
+    color: '#1A9850'
+    thematic_class: '1'                    # str; comparado ao pixel com int() (response_design.py L217)
+    shortcut: ''
+auto_next_sample: true                     # save L255; restore L637-638 (opcional)
+samples:                                   # OBRIGATÓRIA (restore L651, L675-680); save L257-261: {indice_na_ordem: {label_id, sample_id}}, só amostras rotuladas
+  0:
+    label_id: 1                            # id do botão em labeling_buttons
+    sample_id: 1                           # valor do campo `id` da camada (response_design.py L128-129)
+samples_order:                             # OBRIGATÓRIA (restore L664-673); save L263: [sample_id, ...] na ordem de interpretação
+- 1

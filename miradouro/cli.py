@@ -78,7 +78,7 @@ def _parser() -> argparse.ArgumentParser:
         if nome_sub == "acatama":
             e.add_argument("--mapa", required=True, metavar="RASTER", help="raster do mapa temático (classes = códigos da legenda)")
             e.add_argument("--banda", type=int, default=1)
-            e.add_argument("--nodata", type=int, default=None)
+            e.add_argument("--nodata", type=int, default=None, metavar="N", help="nodata do raster (padrão: tag do GeoTIFF; obrigatório se o raster não tiver tag)")
             e.add_argument("--crs", default=None, metavar="EPSG:XXXX", help="CRS da camada de pontos (padrão WGS84)")
             e.add_argument("--versao-acatama", default=None, metavar="V", help="config_file_version gravada no yml")
 

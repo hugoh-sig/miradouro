@@ -218,6 +218,27 @@ Por isso a exportação gera, em `respostas/exportacao/<nome>/`:
 A classe do mapa o AcATaMa lê do raster no pixel de cada ponto; pontos fora do raster ele
 descarta. Se a sua instalação exigir a camada no CRS do raster, reexporte com `--crs`.
 
+**Versão-alvo e origem do formato.** O yml reproduz o formato do **AcATaMa 26.7**, derivado
+do código-fonte do plugin (`AcATaMa/core/config.py`, funções `save` e `restore`, release
+26.7 em https://github.com/SMByC/AcATaMa): o `save` é a especificação e o `restore` define
+o que é obrigatório. O golden file `tests/golden/acatama_26.7.yml` documenta, chave a
+chave, a função e a linha do plugin que a grava ou lê, e `tests/test_exportacao.py` valida
+a estrutura gerada contra ele. Três pontos aprendidos no smoke test com o 26.7:
+
+* `sampling_layer` e `thematic_map.path` saem como caminhos **absolutos** (o plugin não
+  carregou a camada de amostras dada como caminho relativo ao yml);
+* `thematic_map.nodata` nunca é nulo (o restore faz `float(nodata)`): o valor vem da tag
+  do raster passado em `--mapa` (requer `pip install 'miradouro[acatama]'`, i.e. rasterio);
+  sem tag, `--nodata` é obrigatório; `--nodata` explícito prevalece, com aviso se divergir;
+* o restore lê `dialog_size`, `fit_to_sample` e `is_completed` sem checar existência; sem
+  elas ele aborta depois de carregar raster e pontos e antes dos rótulos ("0 / N samples
+  labeled"). O exportador grava todas as chaves obrigatórias na ordem do `save`.
+
+**Risco de quebra.** Versões futuras do plugin podem renomear chaves ou tornar outras
+obrigatórias. Ao atualizar o AcATaMa, reconfira `save`/`restore` no fonte da nova versão,
+atualize o golden file e passe `--versao-acatama` correspondente. Sintoma típico de formato
+desatualizado: raster e pontos carregam, mas o painel mostra "Sampling file not labeled".
+
 ## Relatório de sessão
 
 ```bash

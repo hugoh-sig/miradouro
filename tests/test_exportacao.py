@@ -108,13 +108,13 @@ def test_configuracao_acatama_estrutura(respondido):
     projeto, pontos, arm = respondido
     linhas = linhas_referencia(projeto, pontos, arm, apenas_respondidos=False, apenas_completas=False)
     ids = {"p1": 1, "p2": 2, "p3": 3}
-    cfg = configuracao_acatama(projeto, linhas, ids, mapa="/x/mapa.tif", banda=1, nodata=0, camada="a_pontos.geojson", versao_acatama="26.7")
+    cfg = configuracao_acatama(projeto, linhas, ids, mapa="/x/mapa.tif", banda=1, nodata=0, camada="/x/a_pontos.geojson", versao_acatama="26.7")
     assert cfg["general"]["config_file_version"] == "26.7"
-    assert cfg["thematic_map"] == {"path": "/x/mapa.tif", "band": 1, "nodata": 0}
-    assert cfg["sampling_layer"] == "a_pontos.geojson"
+    assert cfg["thematic_map"] == {"path": "/x/mapa.tif", "band": 1, "nodata": "0"}
+    assert cfg["sampling_layer"] == "/x/a_pontos.geojson"
     assert cfg["samples_order"] == [1, 2, 3]
-    assert cfg["samples"] == {0: {"sample_id": 1, "label_id": 1}}  # só p1 tem classe
-    for chave in ("grid_view_widgets", "current_sample_idx", "sampling_unit_pixel_buffer", "sampling_unit_color", "view_widgets_config", "labeling_buttons"):
+    assert cfg["samples"] == {0: {"label_id": 1, "sample_id": 1}}  # só p1 tem classe
+    for chave in ("grid_view_widgets", "current_sample_idx", "sampling_unit_pixel_buffer", "sampling_unit_color", "view_widgets_config", "labeling_buttons", "dialog_size", "fit_to_sample", "is_completed"):
         assert chave in cfg
 
 
@@ -122,11 +122,14 @@ def test_exportar_acatama_arquivos(respondido, tmp_path):
     projeto, pontos, arm = respondido
     mapa = tmp_path / "mapa.tif"
     mapa.write_bytes(b"nao e um tif de verdade")
-    r = exportar_acatama(projeto, pontos, arm, mapa=str(mapa), saida=tmp_path / "exp", nome="teste", crs=None)
+    with pytest.raises(ErroExportacao, match="--nodata"):  # arquivo ilegível e sem --nodata
+        exportar_acatama(projeto, pontos, arm, mapa=str(mapa), saida=tmp_path / "exp", nome="teste", crs=None)
+    r = exportar_acatama(projeto, pontos, arm, mapa=str(mapa), saida=tmp_path / "exp", nome="teste", crs=None, nodata=0)
     assert r.n_pontos == 1 and r.n_rotulados == 1 and r.ids_gerados  # 'p1' não é inteiro → id gerado
     cfg = yaml.safe_load(r.yml.read_text(encoding="utf-8"))
-    assert cfg["thematic_map"]["path"] == str(mapa.resolve()) and cfg["sampling_layer"] == "teste_pontos.geojson"
-    assert cfg["labeling_buttons"][1]["thematic_class"] == "1" and cfg["samples"] == {0: {"sample_id": 1, "label_id": 1}}
+    assert cfg["thematic_map"]["path"] == str(mapa.resolve()) and cfg["sampling_layer"] == str(r.geojson.resolve())
+    assert cfg["thematic_map"]["nodata"] == "0" and any("não foi possível ler" in a for a in r.avisos)
+    assert cfg["labeling_buttons"][1]["thematic_class"] == "1" and cfg["samples"] == {0: {"label_id": 1, "sample_id": 1}}
     fc = json.loads(r.geojson.read_text(encoding="utf-8"))
     assert fc["features"][0]["properties"]["id"] == 1 and fc["features"][0]["properties"]["PLOTID"] == "p1"
     with r.csv.open(encoding="utf-8") as f:
@@ -134,13 +137,15 @@ def test_exportar_acatama_arquivos(respondido, tmp_path):
     assert rows[0]["acatama_id"] == "1" and rows[0]["PLOTID"] == "p1"
     assert any("WGS84" in a for a in r.avisos) and any("sequencial" in a for a in r.avisos)
     with pytest.raises(ErroExportacao, match="nada a exportar"):
-        exportar_acatama(projeto, pontos, arm, mapa=str(mapa), saida=tmp_path / "exp2", filtro={"regiao": "sul"})
+        exportar_acatama(projeto, pontos, arm, mapa=str(mapa), saida=tmp_path / "exp2", filtro={"regiao": "sul"}, nodata=0)
 
 
 def test_cli_exportar(respondido, capsys):
     projeto, pontos, arm = respondido
     y = str(projeto.caminho_yaml)
-    assert main(["exportar", "acatama", y, "--mapa", "mapa_inexistente.tif", "--versao-acatama", "26.7"]) == CODIGO_OK
+    assert main(["exportar", "acatama", y, "--mapa", "mapa_inexistente.tif", "--versao-acatama", "26.7"]) == CODIGO_ERRO  # sem --nodata
+    assert "--nodata" in capsys.readouterr().err
+    assert main(["exportar", "acatama", y, "--mapa", "mapa_inexistente.tif", "--nodata", "0", "--versao-acatama", "26.7"]) == CODIGO_OK
     out = capsys.readouterr().out
     assert "1 rotulados de 1 pontos" in out and "não encontrado agora" in out
     exp = projeto.pasta_saida / "exportacao" / "acatama"
@@ -150,5 +155,153 @@ def test_cli_exportar(respondido, capsys):
     assert main(["exportar", "csv", y, "--incluir-pendentes", "--nome", "tudo"]) == CODIGO_OK
     assert "3 linhas" in capsys.readouterr().out and (projeto.pasta_saida / "exportacao" / "tudo.csv").exists()
     assert main(["exportar", "csv", y, "--filtro", "coluna_x=1"]) == CODIGO_ERRO
-    assert main(["exportar", "acatama", y, "--mapa", "m.tif", "--respostas", str(Path(y).parent / "vazio")]) == CODIGO_ERRO
+    assert main(["exportar", "acatama", y, "--mapa", "m.tif", "--nodata", "0", "--respostas", str(Path(y).parent / "vazio")]) == CODIGO_ERRO
     assert "não há respostas" in capsys.readouterr().err
+
+
+# ── formato AcATaMa 26.7 (derivado do fonte do plugin; ver tests/golden/acatama_26.7.yml) ──
+
+GOLDEN = Path(__file__).parent / "golden" / "acatama_26.7.yml"
+
+# Chaves que AcATaMa.core.config.restore (26.7) lê SEM checar existência. Um KeyError
+# aborta o restore depois de carregar raster e pontos e ANTES dos rótulos.
+OBRIGATORIAS_RESTORE_26_7 = {
+    ("general", "config_file_version"): "restore L344-346",
+    ("thematic_map", "path"): "restore L393",
+    ("thematic_map", "nodata"): "restore L407 (set_nodata_format → float)",
+    ("sampling_layer",): "restore L604",
+    ("grid_view_widgets", "columns"): "restore L620",
+    ("grid_view_widgets", "rows"): "restore L621",
+    ("dialog_size",): "restore L622",
+    ("current_sample_idx",): "restore L625",
+    ("fit_to_sample",): "restore L630",
+    ("is_completed",): "restore L631",
+    ("labeling_buttons",): "restore L633",
+    ("view_widgets_config",): "restore L635",
+    ("samples",): "restore L651",
+    ("samples_order",): "restore L664",
+}
+
+
+def _estrutura(obj, chave_dinamica=False):
+    """Esqueleto de tipos: dicts viram {chave: esqueleto}; dicts com chaves dinâmicas
+    (samples, labeling_buttons) comparam só o primeiro valor."""
+    if isinstance(obj, dict):
+        if chave_dinamica:
+            return {"<id>": _estrutura(next(iter(obj.values())))} if obj else {}
+        return {k: _estrutura(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [type(obj[0]).__name__] if obj else []
+    return type(obj).__name__
+
+
+def _cfg_exemplo(respondido):
+    projeto, pontos, arm = respondido
+    linhas = linhas_referencia(projeto, pontos, arm, apenas_respondidos=False, apenas_completas=False)
+    return configuracao_acatama(projeto, linhas, {"p1": 1, "p2": 2, "p3": 3}, mapa="/abs/mapa.tif", banda=1, nodata=255, camada="/abs/a_pontos.geojson", versao_acatama="26.7")
+
+
+def test_yml_segue_golden_26_7(respondido):
+    golden = yaml.safe_load(GOLDEN.read_text(encoding="utf-8"))
+    cfg = _cfg_exemplo(respondido)
+    assert list(cfg) == list(golden), "ordem/nomes das chaves de topo diferem do save() do 26.7"
+    for chave in cfg:
+        dinamica = chave in ("samples", "labeling_buttons")
+        assert _estrutura(cfg[chave], dinamica) == _estrutura(golden[chave], dinamica), f"estrutura de {chave!r} difere do golden"
+    # tipos que o restore exige
+    assert isinstance(cfg["thematic_map"]["nodata"], str) and float(cfg["thematic_map"]["nodata"]) == 255
+    assert cfg["dialog_size"] is None and isinstance(cfg["fit_to_sample"], float) and isinstance(cfg["is_completed"], bool)
+    assert all(isinstance(k, int) for k in cfg["samples"]) and all(isinstance(k, int) for k in cfg["labeling_buttons"])
+    for s in cfg["samples"].values():
+        assert list(s) == ["label_id", "sample_id"] and isinstance(s["label_id"], int) and isinstance(s["sample_id"], int)
+
+
+def test_yml_tem_todas_as_chaves_obrigatorias_do_restore(respondido):
+    cfg = _cfg_exemplo(respondido)
+    faltam = []
+    for caminho, ref in OBRIGATORIAS_RESTORE_26_7.items():
+        d = cfg
+        try:
+            for k in caminho:
+                d = d[k]
+        except KeyError:
+            faltam.append((".".join(caminho), ref))
+        else:
+            assert d is not None or caminho == ("dialog_size",), f"{'.'.join(caminho)} nula ({ref})"
+    assert not faltam, f"chaves obrigatórias ausentes: {faltam}"
+    # o yml gravado (safe_dump) precisa reler com as mesmas chaves inteiras
+    relido = yaml.safe_load(yaml.safe_dump(cfg, allow_unicode=True, sort_keys=False))
+    assert relido["samples"] == cfg["samples"] and relido["samples_order"] == cfg["samples_order"]
+
+
+def test_fit_to_sample_por_crs():
+    from miradouro.exportacao.acatama import (
+        FIT_TO_SAMPLE_GRAUS,
+        FIT_TO_SAMPLE_METROS,
+        fit_to_sample,
+    )
+
+    assert fit_to_sample(None) == FIT_TO_SAMPLE_GRAUS == 0.0011
+    assert fit_to_sample("EPSG:4326") == FIT_TO_SAMPLE_GRAUS
+    assert fit_to_sample("EPSG:31983") == FIT_TO_SAMPLE_METROS == 120
+
+
+def test_is_completed_reflete_rotulos(respondido):
+    projeto, pontos, arm = respondido
+    todas = linhas_referencia(projeto, pontos, arm, apenas_respondidos=False, apenas_completas=False)
+    so_completas = linhas_referencia(projeto, pontos, arm)
+    ids = {"p1": 1, "p2": 2, "p3": 3}
+    kw = dict(mapa="/abs/m.tif", banda=1, nodata=255, camada="/abs/p.geojson", versao_acatama="26.7")
+    assert configuracao_acatama(projeto, todas, ids, **kw)["is_completed"] is False
+    assert configuracao_acatama(projeto, so_completas, ids, **kw)["is_completed"] is True
+
+
+def _tif(caminho: Path, nodata):
+    rasterio = pytest.importorskip("rasterio")
+    import numpy as np
+    from rasterio.transform import from_origin
+
+    with rasterio.open(caminho, "w", driver="GTiff", width=4, height=4, count=1, dtype="uint8", crs="EPSG:4326", transform=from_origin(-44.5, -19.5, 0.0001, 0.0001), nodata=nodata) as dst:
+        dst.write(np.ones((4, 4), dtype="uint8"), 1)
+    return caminho
+
+
+def test_resolver_nodata(tmp_path):
+    from miradouro.exportacao.acatama import resolver_nodata
+
+    # raster inexistente: só com --nodata
+    with pytest.raises(ErroExportacao, match="--nodata"):
+        resolver_nodata(str(tmp_path / "nao_existe.tif"), None)
+    assert resolver_nodata(str(tmp_path / "nao_existe.tif"), 0) == (0, [])
+    # arquivo que não é raster
+    falso = tmp_path / "falso.tif"
+    falso.write_bytes(b"nao e um tif")
+    with pytest.raises(ErroExportacao, match="--nodata"):
+        resolver_nodata(str(falso), None)
+    v, avisos = resolver_nodata(str(falso), 0)
+    assert v == 0 and any("não foi possível ler" in a for a in avisos)
+    # tag presente: lida do raster; --nodata divergente prevalece com aviso
+    com_tag = _tif(tmp_path / "com_tag.tif", 255)
+    assert resolver_nodata(str(com_tag), None) == (255, [])
+    assert resolver_nodata(str(com_tag), 255) == (255, [])
+    v, avisos = resolver_nodata(str(com_tag), 0)
+    assert v == 0 and any("difere da tag" in a for a in avisos)
+    # sem tag: exige --nodata
+    sem_tag = _tif(tmp_path / "sem_tag.tif", None)
+    with pytest.raises(ErroExportacao, match="não tem tag nodata"):
+        resolver_nodata(str(sem_tag), None)
+    v, avisos = resolver_nodata(str(sem_tag), 0)
+    assert v == 0 and any("sem tag" in a for a in avisos)
+
+
+def test_exportar_acatama_caminhos_absolutos_e_nodata_da_tag(respondido, tmp_path):
+    projeto, pontos, arm = respondido
+    mapa = _tif(tmp_path / "mapa.tif", 255)
+    r = exportar_acatama(projeto, pontos, arm, mapa=str(mapa), saida=tmp_path / "exp", nome="t")
+    cfg = yaml.safe_load(r.yml.read_text(encoding="utf-8"))
+    assert r.nodata == 255 and cfg["thematic_map"]["nodata"] == "255"
+    assert cfg["thematic_map"]["path"] == str(mapa.resolve())
+    assert cfg["sampling_layer"] == str((tmp_path / "exp" / "t_pontos.geojson").resolve()) and Path(cfg["sampling_layer"]).is_absolute()
+    assert Path(cfg["sampling_layer"]).exists()
+    for chave in ("dialog_size", "fit_to_sample", "is_completed"):
+        assert chave in cfg

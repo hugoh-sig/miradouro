@@ -9,6 +9,19 @@ e lê a classe do mapa no pixel do raster — nunca de uma coluna. Por isso saem
 * ``<nome>_pontos.geojson``: camada de amostras com ``id`` inteiro (+ PLOTID e extras);
 * ``<nome>_referencia.csv``: tabela plana completa para versionar.
 
+FORMATO DO YML — versão-alvo: AcATaMa 26.7. O formato foi derivado do código-fonte do
+plugin (``AcATaMa/core/config.py``, funções ``save`` e ``restore``; repositório
+https://github.com/SMByC/AcATaMa, release 26.7). O ``save`` é a especificação; o
+``restore`` define o que é obrigatório. Chaves que o ``restore`` lê SEM checar existência
+(um ``KeyError`` aborta o restore depois de carregar raster e pontos e ANTES de
+restaurar os rótulos — sintoma: "0 / N samples labeled"):
+``general.config_file_version``, ``thematic_map.path``, ``thematic_map.nodata``,
+``sampling_layer``, ``grid_view_widgets.{columns,rows}``, ``dialog_size``,
+``current_sample_idx``, ``fit_to_sample``, ``is_completed``, ``labeling_buttons``,
+``view_widgets_config``, ``samples`` e ``samples_order``. O golden file
+``tests/golden/acatama_26.7.yml`` documenta chave a chave a origem no fonte.
+Versões futuras do plugin podem mudar o formato: reconferir ``save``/``restore``.
+
 ``thematic_class`` de cada botão é o ``codigo`` da legenda; o AcATaMa o compara
 ao valor do pixel com ``int()``, portanto os códigos precisam ser inteiros.
 """
@@ -37,6 +50,11 @@ from miradouro.exportacao.tabela import (
 
 VERSAO_ACATAMA_PADRAO = "26.7"  # versão do plugin alvo; ajuste com --versao-acatama
 
+# Raio padrão "fit to sample" do plugin por unidade do CRS da camada de amostras
+# (AcATaMa/core/response_design.py, ResponseDesign.__init__, dict fit_to_sample_list).
+FIT_TO_SAMPLE_GRAUS = 0.0011
+FIT_TO_SAMPLE_METROS = 120
+
 
 @dataclass
 class ResultadoExportacao:
@@ -45,6 +63,7 @@ class ResultadoExportacao:
     csv: Path
     n_pontos: int
     n_rotulados: int
+    nodata: int
     ids_gerados: bool = False
     avisos: list[str] = field(default_factory=list)
 
@@ -101,6 +120,59 @@ def _transformador(crs: str | None):
         raise ErroExportacao(f"CRS inválido {crs!r}: {e}") from None
 
 
+def fit_to_sample(crs: str | None) -> float:
+    """Raio ``fit_to_sample`` que o plugin usaria por padrão para o CRS da camada:
+    graus → 0.0011, unidades lineares → 120 (assume metros; mesma tabela do plugin)."""
+    if crs is None or crs.upper() == "EPSG:4326":
+        return FIT_TO_SAMPLE_GRAUS
+    try:
+        from pyproj import CRS
+
+        unidade = (CRS.from_user_input(crs).axis_info[0].unit_name or "").lower()
+    except Exception:  # noqa: BLE001 — sem pyproj ou CRS exótico: assume projetado em metros
+        return FIT_TO_SAMPLE_METROS
+    return FIT_TO_SAMPLE_GRAUS if "degree" in unidade else FIT_TO_SAMPLE_METROS
+
+
+def resolver_nodata(mapa: str, nodata_cli: int | None) -> tuple[int, list[str]]:
+    """NODATA a gravar no yml. Lê a tag do raster (rasterio); ``--nodata`` explícito
+    prevalece (com aviso se divergir). Nunca devolve None: o ``restore`` do 26.7 faz
+    ``float(nodata)`` (utils/others_utils.py, set_nodata_format) e quebra com null."""
+    avisos: list[str] = []
+    caminho = Path(mapa)
+    if not caminho.exists():
+        if nodata_cli is None:
+            raise ErroExportacao(f"raster {mapa!r} não encontrado: passe --nodata explicitamente (o AcATaMa 26.7 não aceita nodata nulo)")
+        return int(nodata_cli), avisos
+    try:
+        import rasterio
+    except ImportError:
+        if nodata_cli is None:
+            raise ErroExportacao("ler a tag nodata do raster exige rasterio (pip install 'miradouro[acatama]'); ou passe --nodata") from None
+        avisos.append("rasterio não instalado: tag nodata do raster não conferida; usando --nodata.")
+        return int(nodata_cli), avisos
+    try:
+        with rasterio.open(caminho) as src:
+            tag = src.nodata
+    except Exception as e:  # noqa: BLE001
+        if nodata_cli is None:
+            raise ErroExportacao(f"não foi possível ler o raster {mapa!r} ({e}); passe --nodata") from None
+        avisos.append(f"não foi possível ler o raster ({e}); usando --nodata.")
+        return int(nodata_cli), avisos
+    if tag is None:
+        if nodata_cli is None:
+            raise ErroExportacao(f"raster {mapa!r} não tem tag nodata: passe --nodata explicitamente (valor fora dos códigos da legenda)")
+        avisos.append("raster sem tag nodata; usando --nodata.")
+        return int(nodata_cli), avisos
+    if tag != int(tag):
+        raise ErroExportacao(f"tag nodata do raster não é inteira ({tag}); o AcATaMa compara classes inteiras")
+    tag = int(tag)
+    if nodata_cli is not None and int(nodata_cli) != tag:
+        avisos.append(f"--nodata {nodata_cli} difere da tag do raster ({tag}); gravado --nodata.")
+        return int(nodata_cli), avisos
+    return tag, avisos
+
+
 def geojson_pontos(linhas: list[dict[str, Any]], ids: Mapping[str, int], extras: list[str], crs: str | None = None) -> dict[str, Any]:
     tr = _transformador(crs)
     feats = []
@@ -122,11 +194,17 @@ def configuracao_acatama(
     *,
     mapa: str,
     banda: int,
-    nodata: int | None,
+    nodata: int,
     camada: str,
     versao_acatama: str,
+    crs: str | None = None,
 ) -> dict[str, Any]:
-    """Dicionário no formato que ``AcATaMa.core.config.restore`` espera."""
+    """Dicionário no formato que ``AcATaMa.core.config.restore`` (26.7) espera.
+
+    Ordem e nomes das chaves seguem ``AcATaMa.core.config.save``; ver
+    ``tests/golden/acatama_26.7.yml`` para a referência linha a linha. ``mapa`` e
+    ``camada`` devem ser caminhos absolutos.
+    """
     campo = _campo_classe(projeto)
     por_codigo = label_id_por_codigo(projeto)
     samples: dict[int, dict[str, int]] = {}
@@ -136,17 +214,30 @@ def configuracao_acatama(
         ordem.append(sid)
         codigo = linha.get(campo.nome)
         if codigo is not None and str(codigo) in por_codigo:
-            samples[idx] = {"sample_id": sid, "label_id": por_codigo[str(codigo)]}
+            # save(): points_config[pnt_idx] = {"label_id": ..., "sample_id": ...}
+            samples[idx] = {"label_id": por_codigo[str(codigo)], "sample_id": sid}
     return {
-        "general": {"config_file_version": versao_acatama, "generated_by": f"miradouro {__version__}", "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "project": projeto.nome},
-        "thematic_map": {"path": mapa, "band": int(banda), "nodata": nodata},
+        "general": {
+            "config_file_version": versao_acatama,
+            # chaves extras: o restore só lê config_file_version
+            "generated_by": f"miradouro {__version__}",
+            "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "project": projeto.nome,
+        },
+        # save(): nodata é o texto do campo da interface (string); restore aceita str ou número
+        "thematic_map": {"path": mapa, "band": int(banda), "nodata": str(int(nodata))},
         "sampling_layer": camada,
+        "dialog_size": None,                              # obrigatório; None = tamanho padrão da janela
+        "response_design_grid_settings_first_open": False,
         "grid_view_widgets": {"columns": 2, "rows": 1},
         "current_sample_idx": 0,
         "sampling_unit_pixel_buffer": 0,
         "sampling_unit_color": "#FF0000",
+        "fit_to_sample": fit_to_sample(crs),              # obrigatório
+        "is_completed": bool(linhas) and len(samples) == len(linhas),  # obrigatório; recalculado no restore
         "view_widgets_config": {},
         "labeling_buttons": botoes_acatama(projeto),
+        "auto_next_sample": True,
         "samples": samples,
         "samples_order": ordem,
     }
@@ -170,6 +261,7 @@ def exportar_acatama(
     linhas = linhas_referencia(projeto, pontos, arm, filtro=filtro, apenas_respondidos=not incluir_pendentes, apenas_completas=True)
     if not linhas:
         raise ErroExportacao("nada a exportar: nenhum ponto com resposta completa dentro do filtro")
+    nodata_final, avisos = resolver_nodata(mapa, nodata)
     ids, gerados = ids_inteiros([linha["PLOTID"] for linha in linhas])
     saida.mkdir(parents=True, exist_ok=True)
     caminho_yml = saida / f"{nome}.yml"
@@ -179,9 +271,13 @@ def exportar_acatama(
     fc = geojson_pontos(linhas, ids, pontos.colunas_extras, crs=crs)
     escrever_atomico(caminho_geojson, json.dumps(fc, ensure_ascii=False, indent=1))
 
-    # Caminho do raster: absoluto se existir; senão como veio (o AcATaMa tenta relativo ao yml).
+    # Caminhos ABSOLUTOS para raster e camada: o AcATaMa 26.7 não carregou a camada de
+    # amostras dada como caminho relativo ao yml (smoke test de 2026-09-13).
     caminho_mapa = str(Path(mapa).resolve()) if Path(mapa).exists() else mapa
-    cfg = configuracao_acatama(projeto, linhas, ids, mapa=caminho_mapa, banda=banda, nodata=nodata, camada=caminho_geojson.name, versao_acatama=versao_acatama)
+    cfg = configuracao_acatama(
+        projeto, linhas, ids, mapa=caminho_mapa, banda=banda, nodata=nodata_final,
+        camada=str(caminho_geojson.resolve()), versao_acatama=versao_acatama, crs=crs,
+    )
     escrever_atomico(caminho_yml, yaml.safe_dump(cfg, allow_unicode=True, sort_keys=False))
 
     colunas = colunas_referencia(projeto, pontos)
@@ -191,11 +287,13 @@ def exportar_acatama(
         colunas = ["acatama_id", *colunas]
     escrever_csv(linhas, colunas, caminho_csv)
 
-    avisos = []
     if gerados:
         avisos.append("PLOTIDs não são inteiros: gerado `id` sequencial (coluna acatama_id no CSV).")
     if not Path(mapa).exists():
         avisos.append(f"raster {mapa!r} não encontrado agora; o AcATaMa tentará o caminho relativo ao yml.")
     if crs is None:
         avisos.append("camada em WGS84 (EPSG:4326); se o plugin exigir o CRS do raster, reexporte com --crs.")
-    return ResultadoExportacao(caminho_yml, caminho_geojson, caminho_csv, n_pontos=len(linhas), n_rotulados=len(cfg["samples"]), ids_gerados=gerados, avisos=avisos)
+    return ResultadoExportacao(
+        caminho_yml, caminho_geojson, caminho_csv, n_pontos=len(linhas), n_rotulados=len(cfg["samples"]),
+        nodata=nodata_final, ids_gerados=gerados, avisos=avisos,
+    )
