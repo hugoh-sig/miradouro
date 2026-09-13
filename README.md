@@ -9,16 +9,16 @@ gravação atômica, backups e metadados de auditoria.
 O núcleo é agnóstico: nada de legendas, regiões ou projetos dentro do pacote. O projeto
 [Paraopeba](exemplos/paraopeba/projeto.yaml) é apenas o primeiro cliente.
 
-> Sprint 1 (este): contrato de dados, motor de chips e CLI.
-> Sprint 2: interface Streamlit de interpretação por teclado.
-> Sprint 3: exportador AcATaMa, relatório de sessão, modo revisão.
+> Sprint 1: contrato de dados, motor de chips e CLI.
+> Sprint 2 (este): interface Streamlit de interpretação por teclado.
+> Sprint 3: exportador AcATaMa, relatório de sessão, modo revisão completo.
 
 ## Quickstart
 
 ```bash
 git clone https://github.com/hugosalis/miradouro && cd miradouro
 python3.12 -m venv .venv && source .venv/bin/activate
-pip install -e ".[chips,dev]"
+pip install -e ".[chips,app,dev]"
 
 # Earth Engine (uma vez por máquina):
 earthengine authenticate
@@ -115,6 +115,53 @@ class MeuProvedor(ProvedorChip):
 
 e habilite `meu_provedor:` em `chips.provedores` do yaml.
 
+## Interpretando
+
+```bash
+python -m miradouro app exemplos/demo/projeto.yaml --interprete hugo
+```
+
+Abre a interface no navegador (porta 8501; `--porta N` muda, `--sem-navegador` não
+abre a janela). Sem `--interprete`, a interface pede o id na entrada. Os chips do ponto
+atual ocupam a tela; o formulário fica na barra lateral.
+
+**Teclado primeiro.** O mouse funciona, mas nunca é necessário:
+
+| tecla | ação |
+|---|---|
+| teclas da legenda (ex.: `1`–`8`) | classe de referência |
+| `⇧` + tecla da legenda | classe alternativa (segundo campo do tipo `classe`) |
+| teclas das opções (ex.: `A`/`M`/`B`, `H`/`N`/`S`) | campos de opção (confiança, fonte...) |
+| `Enter` | valida, grava e avança para o próximo ponto |
+| `←` `→` | ponto anterior / próximo (dentro do modo atual) |
+| `U` | desfaz a última confirmação e volta ao ponto |
+| `Backspace` | limpa o rascunho do ponto |
+| `T` | foca o campo de texto (observação); `Esc` sai dele; `Enter` grava e confirma |
+
+As teclas vêm do `projeto.yaml`; a barra lateral mostra `[tecla] rótulo` em cada opção e
+avisa se alguma tecla conflita com outra ou com as reservadas.
+
+**Campos condicionais** (`obrigatorio_se`) só aparecem, e só são exigidos, quando a
+condição vale: no Paraopeba, `data_imagem_hr` surge ao escolher fonte = alta resolução e
+`classe_alternativa` quando a confiança não é alta. `Enter` recusa a resposta e lista o que
+falta.
+
+**Modos.** *Pendentes* (padrão) percorre só os pontos sem resposta e abre no primeiro
+deles, também ao reabrir a interface. *Todos* permite rever qualquer ponto. *Revisão*
+lista os pontos respondidos com confiança baixa (configurável em `interface.revisao` do
+yaml) para a segunda passada; a resposta anterior aparece e o rascunho já vem preenchido.
+
+**Autosave e auditoria.** Cada `Enter` grava via o núcleo (arquivo atômico + backup por
+sessão). Além dos metadados do Sprint 1, a interface registra em `meta`: `duracao_s`
+(cronômetro por ponto, somando visitas), `modo`, `interface` e, quando faltou chip,
+`sem_subsidio` com os provedores ausentes. Um ponto sem chip mostra aviso e pode ser
+pulado (`→`) ou respondido mesmo assim.
+
+**Cegueira.** As `colunas_ocultas` nunca chegam ao navegador: nem na tela, nem em
+tooltip, título ou URL. Há teste automatizado disso (`tests/test_app.py`) que varre tudo o
+que o front-end receberia, e um teste ponta a ponta opcional em Chrome real
+(`MIRADOURO_E2E=1 pytest tests/test_e2e_teclado.py`, requer `pip install playwright`).
+
 ## Respostas (núcleo)
 
 ```python
@@ -138,8 +185,9 @@ legível mais recente.
 ## Desenvolvimento
 
 ```bash
-pytest --cov=miradouro       # núcleo e motor 100 % offline (GEE e HTTP são simulados)
+pytest --cov=miradouro       # núcleo, motor e interface (AppTest) 100 % offline
 ruff check .
+MIRADOURO_E2E=1 pytest tests/test_e2e_teclado.py   # opcional: teclado num Chrome real
 ```
 
 O CI (GitHub Actions) roda lint, testes e um smoke da CLI em Python 3.11 e 3.12.
@@ -148,9 +196,10 @@ Estrutura:
 
 ```
 miradouro/
-  core/      contrato de dados: projeto.yaml, pontos.csv, respostas (atômico + auditoria)
-  chips/     motor de lote, cache, geometria, painéis e provedores plugáveis
-  cli.py     python -m miradouro ...
+  core/       contrato de dados: projeto.yaml, pontos.csv, respostas (atômico + auditoria)
+  chips/      motor de lote, cache, geometria, painéis e provedores plugáveis
+  interface/  logica.py (puro, testado), app.py (Streamlit), teclado (componente JS)
+  cli.py      python -m miradouro ...
 exemplos/
   demo/      5 pontos públicos em MG para testar os provedores
   paraopeba/ primeiro cliente real (8 classes, 458 pontos)

@@ -33,6 +33,11 @@ chips = [
   "numpy>=1.24",
   "pyproj>=3.5",
 ]
+# Interface de interpretação (Sprint 2).
+app = [
+  "streamlit>=1.46",
+  "pillow>=10",
+]
 dev = [
   "pytest>=8",
   "pytest-cov",
@@ -50,6 +55,9 @@ version = { attr = "miradouro.__version__" }
 
 [tool.setuptools.packages.find]
 include = ["miradouro*"]
+
+[tool.setuptools.package-data]
+miradouro = ["interface/teclado_html/*.html"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

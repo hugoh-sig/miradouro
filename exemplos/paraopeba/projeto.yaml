@@ -207,6 +207,11 @@ chips:
       zoom_minimo: 15
       tamanho_px: 420
 
+# ---- Interface de interpretação ---------------------------------------------
+interface:
+  # Filtro do modo revisão (segunda passada). Padrão, se omitido: confianca = baixa.
+  revisao: {campo: confianca, igual_a: baixa}
+
 # ---- Saída ------------------------------------------------------------------
 saida:
   pasta: respostas      # respostas.json + backups/ (gravação atômica)

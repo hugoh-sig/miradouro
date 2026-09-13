@@ -1,0 +1,72 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>miradouro teclado</title></head>
+<body style="margin:0">
+<script>
+// Componente Streamlit mínimo (sem build): captura teclas na página-mãe e devolve
+// {id, key, code, shift} ao Python. A página-mãe é a mesma origem, logo acessível.
+(function () {
+  const parentWin = window.parent;
+  const parentDoc = parentWin.document;
+  let args = { rotulos_texto: [] };
+  let seq = 0;
+  const mountId = Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 6);
+
+  function post(type, extra) {
+    parentWin.postMessage(Object.assign({ isStreamlitMessage: true, type: type }, extra || {}), "*");
+  }
+  function send(ev) {
+    seq += 1;
+    post("streamlit:setComponentValue", { value: Object.assign({ id: mountId + "-" + seq }, ev), dataType: "json" });
+  }
+  function inputsDeTexto() {
+    const rotulos = new Set(args.rotulos_texto || []);
+    return Array.from(parentDoc.querySelectorAll('input[type="text"], textarea')).filter(function (el) {
+      return rotulos.size === 0 || rotulos.has(el.getAttribute("aria-label"));
+    });
+  }
+  function handler(e) {
+    const t = e.target;
+    const tag = ((t && t.tagName) || "").toUpperCase();
+    const emTexto = tag === "INPUT" || tag === "TEXTAREA" || (t && t.isContentEditable);
+    if (emTexto) {
+      if (e.key === "Escape") { t.blur(); e.preventDefault(); return; }
+      if (e.key === "Enter" && tag !== "TEXTAREA") {
+        // Deixa o Streamlit gravar o valor do campo (blur) e só então confirma.
+        e.preventDefault(); e.stopPropagation();
+        t.blur();
+        setTimeout(function () { send({ key: "Enter", code: "Enter", shift: false }); }, 250);
+        return;
+      }
+      return; // digitação normal
+    }
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.code === "KeyT") {
+      const inputs = inputsDeTexto();
+      if (inputs.length) { e.preventDefault(); inputs[0].focus(); inputs[0].select && inputs[0].select(); }
+      return;
+    }
+    const interessa = /^(Digit|Key|Numpad\d)/.test(e.code) ||
+      ["Enter", "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Backspace"].indexOf(e.key) >= 0;
+    if (!interessa) return;
+    e.preventDefault(); e.stopPropagation();
+    send({ key: e.key, code: e.code, shift: e.shiftKey });
+  }
+
+  // Instala uma única vez por página; remonta se o iframe for recriado.
+  if (parentDoc.__miradouroTeclado) {
+    parentDoc.removeEventListener("keydown", parentDoc.__miradouroTeclado, true);
+  }
+  parentDoc.__miradouroTeclado = handler;
+  parentDoc.addEventListener("keydown", handler, true);
+
+  window.addEventListener("message", function (ev) {
+    const d = ev.data || {};
+    if (d.type === "streamlit:render" && d.args) { args = d.args; }
+  });
+  post("streamlit:componentReady", { apiVersion: 1 });
+  post("streamlit:setFrameHeight", { height: 0 });
+})();
+</script>
+</body>
+</html>

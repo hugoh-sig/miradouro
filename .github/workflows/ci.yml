@@ -20,7 +20,7 @@ jobs:
       - name: Instalar
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[chips,dev]"
+          pip install -e ".[chips,app,dev]"
       - name: Lint (ruff)
         run: ruff check .
       - name: Testes

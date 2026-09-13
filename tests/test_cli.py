@@ -110,3 +110,22 @@ def test_modulo_executavel():
 
     r = subprocess.run([sys.executable, "-m", "miradouro", "--versao"], capture_output=True, text=True)
     assert r.returncode == 0 and __version__ in r.stdout
+
+
+def test_app_comando_monta_streamlit(yaml_cli, monkeypatch, capsys):
+    pytest.importorskip("streamlit")
+    import subprocess
+
+    chamadas = []
+    monkeypatch.setattr(subprocess, "call", lambda cmd: chamadas.append(cmd) or 0)
+    assert main(["app", str(yaml_cli), "--interprete", "ana", "--porta", "8600", "--sem-navegador"]) == CODIGO_OK
+    cmd = chamadas[0]
+    assert cmd[1:4] == ["-m", "streamlit", "run"] and cmd[4].endswith("interface/app.py")
+    assert "--server.port" in cmd and "8600" in cmd and cmd[cmd.index("--server.headless") + 1] == "true"
+    assert cmd[cmd.index("--projeto") + 1] == str(yaml_cli.resolve()) and cmd[cmd.index("--interprete") + 1] == "ana"
+    assert "Abrindo a interface" in capsys.readouterr().err
+
+
+def test_app_comando_projeto_invalido(tmp_path):
+    (tmp_path / "p.yaml").write_text("nome: x\n")
+    assert main(["app", str(tmp_path / "p.yaml")]) == CODIGO_ERRO

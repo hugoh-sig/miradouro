@@ -27,7 +27,7 @@ import os
 import shutil
 import tempfile
 import uuid
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -85,6 +85,8 @@ class Resposta:
     revisoes: int = 0
     miradouro_versao: str = __version__
     yaml_sha256: str | None = None
+    #: Auditoria extra, livre (ex.: duracao_s, modo, sem_subsidio). Nunca é validada.
+    meta: dict[str, Any] = field(default_factory=dict)
 
     def para_dict(self) -> dict[str, Any]:
         d = asdict(self)
@@ -93,7 +95,7 @@ class Resposta:
 
     @classmethod
     def de_dict(cls, plotid: str, d: dict[str, Any]) -> Resposta:
-        return cls(plotid=plotid, **d)
+        return cls(plotid=plotid, **{"meta": {}, **d})
 
 
 def _ler_json(caminho: Path) -> dict[str, Any]:
@@ -231,8 +233,18 @@ class Armazenamento:
         conteudo = json.dumps(self._dados, ensure_ascii=False, indent=2, sort_keys=False)
         escrever_atomico(self.arquivo, conteudo)
 
-    def gravar(self, plotid: str, valores: dict[str, Any], *, validar: bool = True) -> Resposta:
+    def gravar(
+        self,
+        plotid: str,
+        valores: dict[str, Any],
+        *,
+        validar: bool = True,
+        meta: dict[str, Any] | None = None,
+    ) -> Resposta:
         """Grava (ou atualiza) a resposta de um ponto e persiste imediatamente.
+
+        Args:
+            meta: auditoria extra gravada junto (duração, modo, falta de subsídio...).
 
         Raises:
             ErroRespostas: se ``validar`` e os valores violam os campos do projeto.
@@ -255,6 +267,7 @@ class Armazenamento:
                 atualizado_em=agora,
                 revisoes=0,
                 yaml_sha256=self.projeto.hash_yaml,
+                meta=dict(meta or {}),
             )
         else:
             resposta = Resposta(
@@ -266,6 +279,7 @@ class Armazenamento:
                 atualizado_em=agora,
                 revisoes=int(existente.get("revisoes", 0)) + 1,
                 yaml_sha256=self.projeto.hash_yaml,
+                meta=dict(meta or {}),
             )
         self._dados["respostas"][plotid] = resposta.para_dict()
         self._salvar()

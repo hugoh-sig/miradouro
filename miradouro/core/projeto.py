@@ -231,6 +231,15 @@ class ConfigSaida(_Modelo):
     backups: int = Field(default=10, ge=0, description="Backups de sessão mantidos (rotativo).")
 
 
+class ConfigInterface(_Modelo):
+    """Ajustes da interface de interpretação (Sprint 2). Tudo opcional."""
+
+    revisao: CondicaoCampo | None = Field(
+        default=None,
+        description="Filtro do modo revisão (ex.: confianca = baixa). Padrão: campo 'confianca' com valor 'baixa', se existir.",
+    )
+
+
 class Projeto(_Modelo):
     """Um projeto de validação carregado e validado."""
 
@@ -242,6 +251,7 @@ class Projeto(_Modelo):
     campos: list[Campo] = Field(min_length=1)
     chips: ConfigChips = Field(default_factory=ConfigChips)
     saida: ConfigSaida = Field(default_factory=ConfigSaida)
+    interface: ConfigInterface = Field(default_factory=ConfigInterface)
 
     # Preenchidos por carregar_projeto(); não vêm do yaml.
     caminho_yaml: Path | None = Field(default=None, exclude=True)
@@ -271,7 +281,26 @@ class Projeto(_Modelo):
                         f"campo {campo.nome!r}: `obrigatorio_se` usa valores {desconhecidos} "
                         f"que não existem em {alvo.nome!r}"
                     )
+        rev = self.interface.revisao
+        if rev is not None:
+            alvo = por_nome.get(rev.campo)
+            if alvo is None:
+                raise ValueError(f"interface.revisao refere a campo inexistente {rev.campo!r}")
+            validos = self._valores_validos(alvo)
+            if validos is not None:
+                desconhecidos = [v for v in rev.valores() if v not in validos]
+                if desconhecidos:
+                    raise ValueError(f"interface.revisao usa valores {desconhecidos} que não existem em {alvo.nome!r}")
         return self
+
+    def condicao_revisao(self) -> CondicaoCampo | None:
+        """Condição do modo revisão: a configurada ou, por padrão, ``confianca = baixa``."""
+        if self.interface.revisao is not None:
+            return self.interface.revisao
+        campo = self.campo("confianca")
+        if campo is not None and campo.tipo == "opcao" and any(o.valor == "baixa" for o in campo.opcoes):
+            return CondicaoCampo(campo="confianca", igual_a="baixa")
+        return None
 
     # ---- consultas -------------------------------------------------------
 

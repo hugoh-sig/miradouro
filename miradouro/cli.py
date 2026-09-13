@@ -6,6 +6,7 @@ Comandos do Sprint 1:
 * ``chips listar`` — provedores registrados.
 * ``chips gerar <projeto.yaml>`` — pré-computa os chips em lote (com cache).
 * ``chips status <projeto.yaml>`` — quantos chips já existem por provedor.
+* ``app <projeto.yaml> [--interprete id]`` — interface de interpretação (Streamlit).
 """
 
 from __future__ import annotations
@@ -58,6 +59,13 @@ def _parser() -> argparse.ArgumentParser:
 
     st = chips_sub.add_parser("status", help="chips existentes por provedor")
     st.add_argument("projeto", help="caminho do projeto.yaml")
+
+    # app
+    app = sub.add_parser("app", help="abre a interface de interpretação (Streamlit)")
+    app.add_argument("projeto", help="caminho do projeto.yaml")
+    app.add_argument("--interprete", default=None, metavar="ID", help="id do intérprete (senão a interface pergunta)")
+    app.add_argument("--porta", type=int, default=8501, metavar="N", help="porta do servidor (padrão 8501)")
+    app.add_argument("--sem-navegador", action="store_true", help="não abre o navegador automaticamente")
     return p
 
 
@@ -182,6 +190,33 @@ def cmd_chips_gerar(args: argparse.Namespace) -> int:
     return CODIGO_OK
 
 
+def cmd_app(args: argparse.Namespace) -> int:
+    import subprocess
+
+    try:
+        import streamlit  # noqa: F401
+    except ImportError:
+        raise ErroMiradouro("streamlit não instalado: pip install 'miradouro[app]'") from None
+    projeto = carregar_projeto(args.projeto)
+    carregar_pontos(projeto.caminho_pontos)  # falha cedo se o CSV estiver quebrado
+    from pathlib import Path
+
+    import miradouro.interface
+
+    caminho_app = Path(miradouro.interface.__file__).parent / "app.py"
+    comando = [
+        sys.executable, "-m", "streamlit", "run", str(caminho_app),
+        "--server.port", str(args.porta),
+        "--browser.gatherUsageStats", "false",
+        "--server.headless", "true" if args.sem_navegador else "false",
+        "--", "--projeto", str(projeto.caminho_yaml),
+    ]
+    if args.interprete:
+        comando += ["--interprete", args.interprete]
+    print(f"Abrindo a interface para {projeto.nome} em http://localhost:{args.porta}", file=sys.stderr)
+    return subprocess.call(comando)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     _configurar_log(args.verboso)
@@ -190,8 +225,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         ("chips", "listar"): cmd_chips_listar,
         ("chips", "gerar"): cmd_chips_gerar,
         ("chips", "status"): cmd_chips_status,
+        ("app", None): cmd_app,
     }
-    funcao = comandos[(args.comando, args.subcomando)]
+    funcao = comandos[(args.comando, getattr(args, "subcomando", None))]
     try:
         return funcao(args)
     except ErroMiradouro as e:
