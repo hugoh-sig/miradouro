@@ -341,3 +341,78 @@ def test_pede_interprete_quando_nao_informado(projeto_app, monkeypatch):
     at.text_input[0].set_value("maria").run()
     _botao(at, "Começar").click().run()
     assert at.radio and "Intérprete **maria**" in _todo_texto(at)
+
+
+# ---- segunda passada e consenso ---------------------------------------------------------
+
+
+def _primeira_passada(projeto_app: Path):
+    from miradouro.core import Armazenamento, carregar_projeto
+
+    projeto = carregar_projeto(projeto_app)
+    arm = Armazenamento(projeto, interprete="ana")
+    arm.gravar("p1", {"classe_ref": "1", "confianca": "baixa", "classe_alt": "2"})
+    arm.gravar("p2", {"classe_ref": "2", "confianca": "alta"})
+    arm.gravar("p3", {"classe_ref": "6", "confianca": "alta"})
+    return projeto, arm
+
+
+def test_segunda_passada_cega(projeto_app, monkeypatch):
+    projeto, arm = _primeira_passada(projeto_app)
+    monkeypatch.setenv(modulo_app.VAR_PASSADA, "segunda")
+    monkeypatch.setenv(modulo_app.VAR_FRACAO, "0.5")
+    monkeypatch.setenv(modulo_app.VAR_INTERPRETE, "bia")
+    at = _app()
+    texto = _todo_texto(at)
+    assert "Segunda passada (cega)" in texto and "2 pontos, 1 de controle" in texto
+    assert "Já respondido" not in texto and "classe_ref = " not in texto  # nada da primeira passada
+    assert SENTINELA_VALOR not in texto
+    assert [r.label for r in at.radio][0] == "Modo" and list(at.radio[0].options) == ["Pendentes", "Todos da segunda passada"]
+    assert at.subheader[0].value.startswith("PLOTID p1 · ponto 1 de 2")
+    assert _radio(at, "classe_ref").value is None  # formulário vazio, não pré-preenchido
+    _radio(at, "classe_ref").set_value("2").run()
+    _radio(at, "confianca").set_value("alta").run()
+    _botao(at, "Confirmar").click().run()
+    seg = json.loads((projeto_app.parent / "respostas" / "segunda" / "respostas.json").read_text(encoding="utf-8"))
+    assert seg["respostas"]["p1"]["valores"]["classe_ref"] == "2" and seg["respostas"]["p1"]["meta"]["passada"] == 2
+    assert "controle" not in seg["respostas"]["p1"]["meta"] and seg["respostas"]["p1"]["interprete"] == "bia"
+    # Arquivo principal intacto.
+    assert arm.obter("p1").valores["classe_ref"] == "1" and _respostas(projeto_app)["p1"]["interprete"] == "ana"
+    # Segundo ponto é o de controle (p2 ou p3), marcado na auditoria.
+    pid = at.subheader[0].value.split()[1]
+    assert pid in ("p2", "p3")
+    _radio(at, "classe_ref").set_value("6").run()
+    _radio(at, "confianca").set_value("alta").run()
+    _botao(at, "Confirmar").click().run()
+    seg = json.loads((projeto_app.parent / "respostas" / "segunda" / "respostas.json").read_text(encoding="utf-8"))
+    assert seg["respostas"][pid]["meta"]["controle"] is True
+    assert not at.subheader  # lista esvaziada
+
+
+def test_consenso(projeto_app, monkeypatch):
+    from miradouro.core import Armazenamento
+
+    projeto, arm = _primeira_passada(projeto_app)
+    monkeypatch.setenv(modulo_app.VAR_PASSADA, "consenso")
+    at = AppTest.from_file(modulo_app.__file__, default_timeout=60)
+    at.run()
+    assert at.error and "exige a segunda passada" in at.error[0].value
+    seg = Armazenamento(projeto, interprete="bia", pasta=projeto.pasta_saida / "segunda")
+    seg.gravar("p1", {"classe_ref": "2", "confianca": "alta"}, meta={"passada": 2})
+    seg.gravar("p2", {"classe_ref": "2", "confianca": "alta"}, meta={"passada": 2, "controle": True})
+    at = _app()
+    texto = _todo_texto(at)
+    assert "Consenso" in texto and list(at.radio[0].options) == ["Divergentes sem consenso", "Todos da segunda passada"]
+    assert at.subheader[0].value.startswith("PLOTID p1 · ponto 1 de 1")
+    assert "Primeira passada" in texto and "Segunda passada" in texto and "classe_ref = 1" in texto and "classe_ref = 2" in texto
+    assert _radio(at, "classe_ref").value == "1"  # pré-preenchido com a primeira passada
+    _radio(at, "classe_ref").set_value("2").run()
+    _radio(at, "confianca").set_value("alta").run()
+    _botao(at, "Confirmar").click().run()
+    r = _respostas(projeto_app)["p1"]
+    assert r["valores"]["classe_ref"] == "2" and r["revisoes"] == 1 and r["meta"]["modo"] == "divergentes"
+    assert r["meta"]["consenso"]["primeira"]["valores"]["classe_ref"] == "1" and r["meta"]["consenso"]["segunda"]["interprete"] == "bia"
+    assert not at.subheader  # não há mais divergências
+    _radio(at, "Modo").set_value("todos_segunda").run()
+    assert at.subheader[0].value.startswith("PLOTID p1 · ponto 1 de 2")
+    assert "consenso registrado" in _todo_texto(at)

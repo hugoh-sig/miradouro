@@ -20,6 +20,9 @@ FILTROS: dict[str, str] = {
     "todos": "Todos os pontos",
     "revisao": "Revisão (confiança baixa)",
 }
+FILTROS_SEGUNDA: dict[str, str] = {"pendentes": "Pendentes", "todos": "Todos da segunda passada"}
+FILTROS_CONSENSO: dict[str, str] = {"divergentes": "Divergentes sem consenso", "todos_segunda": "Todos da segunda passada"}
+PASTA_SEGUNDA = "segunda"  # subpasta da saída onde a segunda passada grava
 
 # Ações reservadas do teclado; têm precedência sobre atalhos de campos.
 ACOES_RESERVADAS: dict[str, str] = {
@@ -406,3 +409,61 @@ class Historico:
 
     def __len__(self) -> int:
         return len(self.itens)
+
+
+# ---- segunda passada e consenso ---------------------------------------------------------
+
+
+def selecionar_segunda_passada(
+    ids: list[str],
+    valores_por_id: Mapping[str, Mapping[str, Any]],
+    cond: CondicaoCampo | None,
+    fracao_controle: float = 0.0,
+    semente: str = "",
+) -> tuple[list[str], list[str]]:
+    """IDs da segunda passada cega: os que satisfazem ``cond`` (confiança baixa) e uma
+    fração aleatória de controle dos demais respondidos.
+
+    A amostra de controle é determinística para a mesma ``semente`` e o mesmo
+    conjunto de respondidos: rode a segunda passada depois de concluir a primeira.
+    """
+    import random
+
+    if not 0.0 <= fracao_controle <= 1.0:
+        raise ValueError("fracao_controle deve estar entre 0 e 1")
+    baixa = [i for i in ids if i in valores_por_id and cond is not None and cond.satisfeita(valores_por_id[i].get(cond.campo))]
+    elegiveis = [i for i in ids if i in valores_por_id and i not in baixa]
+    n = round(len(elegiveis) * fracao_controle)
+    if fracao_controle > 0 and elegiveis and n == 0:
+        n = 1
+    rnd = random.Random(f"{semente}|controle|{len(elegiveis)}")
+    controle = rnd.sample(elegiveis, n) if n else []
+    posicao_csv = {pid: k for k, pid in enumerate(ids)}
+    return baixa, sorted(controle, key=posicao_csv.__getitem__)
+
+
+def divergencias(
+    primeira: Mapping[str, Mapping[str, Any]],
+    segunda: Mapping[str, Mapping[str, Any]],
+    campo: str,
+) -> list[str]:
+    """IDs presentes nas duas passadas cujo ``campo`` difere (comparação como texto)."""
+    return [pid for pid in segunda if pid in primeira and str(primeira[pid].get(campo)) != str(segunda[pid].get(campo))]
+
+
+def ordem_consenso(
+    ids: list[str],
+    primeira: Mapping[str, Mapping[str, Any]],
+    segunda: Mapping[str, Mapping[str, Any]],
+    consenso_feito: Iterable[str],
+    filtro: str,
+    campo: str,
+) -> list[str]:
+    """Ordem (do CSV) no modo consenso: divergentes sem consenso, ou todos da segunda passada."""
+    feitos = set(consenso_feito)
+    if filtro == "todos_segunda":
+        return [i for i in ids if i in segunda]
+    if filtro == "divergentes":
+        div = set(divergencias(primeira, segunda, campo))
+        return [i for i in ids if i in div and i not in feitos]
+    raise ValueError(f"filtro de consenso desconhecido: {filtro!r}")

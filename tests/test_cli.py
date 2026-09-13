@@ -129,3 +129,19 @@ def test_app_comando_monta_streamlit(yaml_cli, monkeypatch, capsys):
 def test_app_comando_projeto_invalido(tmp_path):
     (tmp_path / "p.yaml").write_text("nome: x\n")
     assert main(["app", str(tmp_path / "p.yaml")]) == CODIGO_ERRO
+
+
+def test_app_comando_segunda_passada_e_consenso(yaml_cli, monkeypatch):
+    pytest.importorskip("streamlit")
+    import subprocess
+
+    chamadas = []
+    monkeypatch.setattr(subprocess, "call", lambda cmd: chamadas.append(cmd) or 0)
+    assert main(["app", str(yaml_cli), "--segunda-passada", "--fracao-controle", "0.05", "--sem-navegador"]) == CODIGO_OK
+    assert chamadas[-1][-4:] == ["--passada", "segunda", "--fracao-controle", "0.05"]
+    assert main(["app", str(yaml_cli), "--segunda-passada", "--fracao-controle", "2"]) == CODIGO_ERRO
+    assert main(["app", str(yaml_cli), "--consenso"]) == CODIGO_ERRO  # sem segunda passada
+    (yaml_cli.parent / "respostas" / "segunda").mkdir(parents=True)
+    (yaml_cli.parent / "respostas" / "segunda" / "respostas.json").write_text("{}")
+    assert main(["app", str(yaml_cli), "--consenso", "--sem-navegador"]) == CODIGO_OK
+    assert chamadas[-1][-2:] == ["--passada", "consenso"]

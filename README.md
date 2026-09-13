@@ -10,8 +10,8 @@ O núcleo é agnóstico: nada de legendas, regiões ou projetos dentro do pacote
 [Paraopeba](exemplos/paraopeba/projeto.yaml) é apenas o primeiro cliente.
 
 > Sprint 1: contrato de dados, motor de chips e CLI.
-> Sprint 2 (este): interface Streamlit de interpretação por teclado.
-> Sprint 3: exportador AcATaMa, relatório de sessão, modo revisão completo.
+> Sprint 2: interface Streamlit de interpretação por teclado.
+> Sprint 3: exportador AcATaMa, relatório de sessão, segunda passada cega e consenso.
 
 ## Quickstart
 
@@ -172,6 +172,66 @@ tooltip, título ou URL. Há teste automatizado disso (`tests/test_app.py`) que 
 que o front-end receberia, e um teste ponta a ponta opcional em Chrome real
 (`MIRADOURO_E2E=1 pytest tests/test_e2e_teclado.py`, requer `pip install playwright`).
 
+## Segunda passada e consenso
+
+O protocolo pede uma segunda interpretação independente dos pontos de confiança baixa e
+resolução das divergências por consenso.
+
+```bash
+# 1) Segunda passada CEGA (outro intérprete): só os pontos de confiança baixa da primeira
+#    passada, mais 5 % aleatórios dos demais como controle. Grava em respostas/segunda/.
+python -m miradouro app exemplos/paraopeba/projeto.yaml --interprete maria --segunda-passada --fracao-controle 0.05
+
+# 2) Consenso: lista as divergências na classe entre as duas passadas, mostra as duas
+#    respostas lado a lado e grava a decisão final no arquivo principal.
+python -m miradouro app exemplos/paraopeba/projeto.yaml --interprete hugo --consenso
+```
+
+Na segunda passada a interface nunca mostra a resposta da primeira; a amostra de controle é
+determinística (semente = hash do yaml) e marcada com `meta.controle`. Rode-a depois de
+concluir a primeira passada, pois o conjunto depende das respostas existentes. No consenso,
+cada decisão guarda em `meta.consenso` as duas respostas originais com seus intérpretes; o
+modo *Todos da segunda passada* permite rever os concordantes também.
+
+## Exportando
+
+```bash
+# Tabela plana de referência (uma linha por ponto, com auditoria e colunas ocultas reanexadas)
+python -m miradouro exportar csv exemplos/paraopeba/projeto.yaml
+
+# AcATaMa: yml restaurável + camada de pontos + CSV. --filtro seleciona por coluna do CSV.
+python -m miradouro exportar acatama exemplos/paraopeba/projeto.yaml --mapa /caminho/mapa_2023.tif \
+    --filtro conjunto=classe --nome geral --versao-acatama 26.7
+python -m miradouro exportar acatama exemplos/paraopeba/projeto.yaml --mapa /caminho/mapa_2023.tif \
+    --filtro "faixa_rio=0-1 km" --nome rio
+```
+
+O AcATaMa não importa rótulos de CSV; ele restaura o seu próprio arquivo de configuração.
+Por isso a exportação gera, em `respostas/exportacao/<nome>/`:
+
+| arquivo | conteúdo |
+|---|---|
+| `<nome>.yml` | configuração para *AcATaMa → Restore configuration*: botões = legenda (`thematic_class` = código da classe, comparado ao pixel do raster), `samples` = respostas completas casadas pelo `id` |
+| `<nome>_pontos.geojson` | camada de amostras com campo `id` inteiro (PLOTID quando numérico, senão sequencial com `acatama_id` no CSV), em WGS84 ou no `--crs` pedido |
+| `<nome>_referencia.csv` | tabela plana completa para versionar |
+
+A classe do mapa o AcATaMa lê do raster no pixel de cada ponto; pontos fora do raster ele
+descarta. Se a sua instalação exigir a camada no CRS do raster, reexporte com `--crs`.
+
+## Relatório de sessão
+
+```bash
+python -m miradouro relatorio exemplos/paraopeba/projeto.yaml            # Markdown + JSON em respostas/relatorios/
+python -m miradouro relatorio exemplos/paraopeba/projeto.yaml --com-mapa # + cruzamento com a classe do mapa
+```
+
+Traz progresso, sessões (respostas, tempo interpretando, mediana por ponto, pontos por
+hora), distribuições dos campos, sinais para a segunda passada (confiança baixa, sem
+subsídio, revisões, desfeitos, incompletos, observações, yaml divergente) e, quando existe
+`respostas/segunda/`, a concordância entre passadas e as divergências sem consenso. O
+cruzamento com a classe do mapa só entra com `--com-mapa` e é preliminar: a matriz oficial
+é a do AcATaMa.
+
 ## Respostas (núcleo)
 
 ```python
@@ -215,10 +275,11 @@ Estrutura:
 
 ```
 miradouro/
-  core/       contrato de dados: projeto.yaml, pontos.csv, respostas (atômico + auditoria)
-  chips/      motor de lote, cache, geometria, painéis e provedores plugáveis
-  interface/  logica.py (puro, testado), app.py (Streamlit), teclado (componente JS)
-  cli.py      python -m miradouro ...
+  core/        contrato de dados: projeto.yaml, pontos.csv, respostas (atômico + auditoria)
+  chips/       motor de lote, cache, geometria, painéis e provedores plugáveis
+  interface/   logica.py (puro, testado), app.py (Streamlit), teclado (componente JS)
+  exportacao/  tabela de referência, exportador AcATaMa, relatório de sessão
+  cli.py       python -m miradouro ...
 exemplos/
   demo/      5 pontos públicos em MG para testar os provedores
   paraopeba/ primeiro cliente real (8 classes, 458 pontos)

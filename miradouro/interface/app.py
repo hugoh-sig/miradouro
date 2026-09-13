@@ -32,17 +32,28 @@ from miradouro.interface.teclado import capturar_tecla
 
 VAR_PROJETO = "MIRADOURO_PROJETO"
 VAR_INTERPRETE = "MIRADOURO_INTERPRETE"
+VAR_PASSADA = "MIRADOURO_PASSADA"  # primeira (padrão) | segunda | consenso
+VAR_FRACAO = "MIRADOURO_FRACAO_CONTROLE"
 
 
 # ---- configuração e carga -------------------------------------------------------
 
 
-def configuracao() -> tuple[str | None, str | None]:
+def configuracao() -> tuple[str | None, str | None, str, float]:
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--projeto")
     parser.add_argument("--interprete")
+    parser.add_argument("--passada", choices=["primeira", "segunda", "consenso"])
+    parser.add_argument("--fracao-controle", type=float)
     args, _ = parser.parse_known_args(sys.argv[1:])
-    return (args.projeto or os.environ.get(VAR_PROJETO) or None, args.interprete or os.environ.get(VAR_INTERPRETE) or None)
+    passada = args.passada or os.environ.get(VAR_PASSADA) or "primeira"
+    fracao = args.fracao_controle if args.fracao_controle is not None else float(os.environ.get(VAR_FRACAO) or 0.0)
+    return (
+        args.projeto or os.environ.get(VAR_PROJETO) or None,
+        args.interprete or os.environ.get(VAR_INTERPRETE) or None,
+        passada,
+        fracao,
+    )
 
 
 @st.cache_resource(show_spinner=False)
@@ -55,15 +66,41 @@ def _carregar(caminho: str, _mtime: float):
 # ---- estado -----------------------------------------------------------------------
 
 
-def _iniciar(projeto, pontos, interprete: str) -> None:
+def _campo_classe(projeto) -> str | None:
+    return next((c.nome for c in projeto.campos if c.tipo == "classe"), None)
+
+
+def _iniciar(projeto, pontos, interprete: str, passada: str = "primeira", fracao: float = 0.0) -> None:
     ss = st.session_state
     if "arm" in ss:
         return
-    ss.arm = Armazenamento(projeto, interprete=interprete)
+    ss.passada = passada
+    ss.controle = set()
+    ss.arm_segunda = None
+    if passada == "segunda":
+        # Cega: lê a primeira passada só para escolher os pontos; grava em outra pasta.
+        primeira = Armazenamento(projeto, interprete=interprete)
+        vals = {pid: r.valores for pid, r in primeira.todas().items()}
+        baixa, controle = lg.selecionar_segunda_passada(
+            pontos.ids, vals, projeto.condicao_revisao(), fracao, semente=projeto.hash_yaml or projeto.nome
+        )
+        ss.controle = set(controle)
+        ss.ids = [i for i in pontos.ids if i in set(baixa) | ss.controle]
+        ss.arm = Armazenamento(projeto, interprete=interprete, pasta=projeto.pasta_saida / lg.PASTA_SEGUNDA)
+        ss.filtros = lg.FILTROS_SEGUNDA
+    elif passada == "consenso":
+        ss.arm = Armazenamento(projeto, interprete=interprete)
+        ss.arm_segunda = Armazenamento(projeto, interprete=interprete, pasta=projeto.pasta_saida / lg.PASTA_SEGUNDA)
+        ss.ids = pontos.ids
+        ss.filtros = lg.FILTROS_CONSENSO
+    else:
+        ss.arm = Armazenamento(projeto, interprete=interprete)
+        ss.ids = pontos.ids
+        ss.filtros = lg.FILTROS
     ss.arm.abrir_sessao()
     ss.cache = CacheChips(projeto.pasta_chips)
     ss.mapa, ss.avisos_teclas = lg.mapa_de_atalhos(projeto)
-    ss.filtro = "pendentes"
+    ss.filtro = next(iter(ss.filtros))
     ss.rascunhos = {}
     ss.cron = lg.Cronometro()
     ss.hist = lg.Historico()
@@ -72,16 +109,25 @@ def _iniciar(projeto, pontos, interprete: str) -> None:
     ss.focar = None  # {"id", "rotulo"}: o componente de teclado rola até o campo e o foca
     ss.n_focar = 0
     ss.aviso = None
-    ss.atual = lg.primeiro_pendente(pontos.ids, ss.arm.respondidos())
+    if passada == "consenso":
+        ordem = _ordem(projeto, pontos)
+        ss.atual = ordem[0] if ordem else None
+    else:
+        ss.atual = lg.primeiro_pendente(ss.ids, ss.arm.respondidos())
     ss.cron.ir_para(ss.atual)
 
 
-def _valores_por_id() -> dict[str, dict]:
-    return {pid: r.valores for pid, r in st.session_state.arm.todas().items()}
+def _valores_por_id(arm=None) -> dict[str, dict]:
+    arm = arm or st.session_state.arm
+    return {pid: r.valores for pid, r in arm.todas().items()}
 
 
 def _ordem(projeto, pontos) -> list[str]:
-    return lg.ordem_visivel(pontos.ids, _valores_por_id(), st.session_state.filtro, projeto.condicao_revisao())
+    ss = st.session_state
+    if ss.passada == "consenso":
+        feitos = [pid for pid, r in ss.arm.todas().items() if r.meta.get("consenso") is not None]
+        return lg.ordem_consenso(ss.ids, _valores_por_id(ss.arm), _valores_por_id(ss.arm_segunda), feitos, ss.filtro, _campo_classe(projeto) or "")
+    return lg.ordem_visivel(ss.ids, _valores_por_id(), ss.filtro, projeto.condicao_revisao())
 
 
 def _rascunho(pid: str) -> dict:
@@ -136,6 +182,16 @@ def _confirmar(projeto, pontos) -> None:
     meta = {"duracao_s": round(ss.cron.decorrido(pid), 1), "modo": ss.filtro, "interface": f"streamlit/{__version__}"}
     if faltantes:
         meta["sem_subsidio"] = faltantes
+    if ss.passada == "segunda":
+        meta["passada"] = 2
+        if pid in ss.controle:
+            meta["controle"] = True
+    elif ss.passada == "consenso":
+        r1, r2 = ss.arm.obter(pid), ss.arm_segunda.obter(pid)
+        meta["consenso"] = {
+            "primeira": {"interprete": r1.interprete, "valores": r1.valores} if r1 else None,
+            "segunda": {"interprete": r2.interprete, "valores": r2.valores} if r2 else None,
+        }
     ss.arm.gravar(pid, valores, meta=meta)
     ss.hist.empurrar(pid, dict(anterior.valores) if anterior else None, valores)
     ss.rascunhos[pid] = dict(valores)
@@ -262,11 +318,15 @@ def _render_sidebar(projeto, pontos, interprete: str) -> None:
     with st.sidebar:
         st.markdown(f"**MIRADOURO** · {projeto.nome}")
         st.caption(f"Intérprete **{interprete}** · sessão {ss.arm.sessao_id} · ano de referência {projeto.ano_referencia}")
+        if ss.passada == "segunda":
+            st.warning(f"**Segunda passada (cega)** · {len(ss.ids)} pontos, {len(ss.controle)} de controle. As respostas da primeira passada não são mostradas.")
+        elif ss.passada == "consenso":
+            st.warning("**Consenso** · a decisão final vai para o arquivo principal, guardando as duas passadas na auditoria.")
 
         ss.filtro_widget = ss.filtro
-        st.radio("Modo", list(lg.FILTROS), key="filtro_widget", format_func=lg.FILTROS.get, horizontal=True, on_change=_mudar_filtro, args=(projeto, pontos))
+        st.radio("Modo", list(ss.filtros), key="filtro_widget", format_func=ss.filtros.get, horizontal=True, on_change=_mudar_filtro, args=(projeto, pontos))
 
-        ids = set(pontos.ids)
+        ids = set(ss.ids)
         feitos = len(ss.arm.respondidos() & ids)
         nesta_sessao = sum(1 for r in ss.arm.todas().values() if r.sessao_id == ss.arm.sessao_id)
         st.progress(feitos / max(1, len(ids)), text=f"{feitos}/{len(ids)} respondidos · {nesta_sessao} nesta sessão")
@@ -321,7 +381,7 @@ def _render_principal(projeto, pontos) -> None:
     dados = lg.dados_visiveis_do_ponto(ponto, projeto)
 
     cab1, cab2 = st.columns([5, 1])
-    cab1.subheader(f"PLOTID {pid} · ponto {n} de {total} ({lg.FILTROS[ss.filtro].lower()})")
+    cab1.subheader(f"PLOTID {pid} · ponto {n} de {total} ({ss.filtros[ss.filtro].lower()})")
     extras = " · ".join(f"{k}: {v}" for k, v in dados.items() if k not in ("PLOTID",))
     cab1.caption(extras)
 
@@ -333,7 +393,17 @@ def _render_principal(projeto, pontos) -> None:
     fragmento()
 
     resposta = ss.arm.obter(pid)
-    if resposta is not None:
+    if ss.passada == "consenso":
+        r2 = ss.arm_segunda.obter(pid) if ss.arm_segunda else None
+        col1, col2 = st.columns(2)
+        for col, titulo, r in ((col1, "Primeira passada", resposta), (col2, "Segunda passada", r2)):
+            if r is None:
+                col.info(f"{titulo}: sem resposta")
+                continue
+            resumo = "\n".join(f"- {k} = {lg.formatar_valor(v)}" for k, v in r.valores.items())
+            estado = " · **consenso registrado**" if r.meta.get("consenso") is not None else ""
+            col.markdown(f"**{titulo}** ({r.interprete}, {r.atualizado_em[:16].replace('T', ' ')}){estado}\n{resumo}")
+    elif resposta is not None:
         resumo = " · ".join(f"{k} = {lg.formatar_valor(v)}" for k, v in resposta.valores.items())
         st.success(f"Já respondido ({resposta.interprete}, {resposta.atualizado_em[:16].replace('T', ' ')}): {resumo}")
 
@@ -373,7 +443,7 @@ def _pedir_interprete(sugestao: str) -> None:
 
 
 def main() -> None:
-    caminho, interprete_cli = configuracao()
+    caminho, interprete_cli, passada, fracao = configuracao()
     if not caminho:
         st.set_page_config(page_title="MIRADOURO")
         st.error(f"Informe o projeto: `python -m miradouro app projeto.yaml` (ou variável {VAR_PROJETO}).")
@@ -391,7 +461,11 @@ def main() -> None:
     if not interprete:
         _pedir_interprete(getpass.getuser())
         return
-    _iniciar(projeto, pontos, interprete)
+    if passada == "consenso" and not (projeto.pasta_saida / lg.PASTA_SEGUNDA / "respostas.json").exists():
+        st.error(f"Modo consenso exige a segunda passada em {projeto.pasta_saida / lg.PASTA_SEGUNDA}.")
+        st.stop()
+        return
+    _iniciar(projeto, pontos, interprete, passada, fracao)
 
     rotulos_texto = [_rotulo_widget(c) for c in projeto.campos if c.tipo in ("texto", "numero")]
     focar_antes = st.session_state.focar
