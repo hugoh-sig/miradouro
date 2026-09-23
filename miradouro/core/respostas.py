@@ -193,10 +193,11 @@ class Armazenamento:
         gravado = self._dados.get("projeto", {}).get("yaml_sha256")
         return bool(gravado and self.projeto.hash_yaml and gravado != self.projeto.hash_yaml)
 
-    def abrir_sessao(self) -> str:
+    def abrir_sessao(self, extra: dict[str, Any] | None = None) -> str:
         """Inicia uma sessão: faz backup do arquivo atual (estado anterior à sessão) e a registra.
 
         Sem arquivo prévio (primeira sessão) não há o que copiar e nenhum backup é criado.
+        ``extra`` entra no registro da sessão (ex.: modo de revisão dirigida e a lista usada).
         """
         ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
         self.sessao_id = f"{ts}-{uuid.uuid4().hex[:6]}"
@@ -209,6 +210,7 @@ class Armazenamento:
                 "inicio": agora_iso(),
                 "miradouro_versao": __version__,
                 "yaml_sha256": self.projeto.hash_yaml,
+                **dict(extra or {}),
             }
         )
         self._salvar()

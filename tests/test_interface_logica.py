@@ -291,3 +291,100 @@ def test_historico():
     assert h.desempilhar() == ("c", None, {"x": 3})
     assert h.desempilhar() == ("b", {"x": 0}, {"x": 2})
     assert h.desempilhar() is None
+
+
+# ---- salto direto por PLOTID -----------------------------------------------------------
+
+
+def test_saltar_para():
+    ids = ["1", "2", "3", "4"]
+    ordem = ["2", "4"]  # ex.: modo pendentes
+    assert lg.saltar_para("2", ids, ordem) == ("2", None)
+    assert lg.saltar_para(" 4 ", ids, ordem) == ("4", None)
+    pid, aviso = lg.saltar_para("3", ids, ordem)  # existe, mas fora do filtro: abre com aviso
+    assert pid == "3" and "fora da lista do modo atual" in aviso
+    pid, aviso = lg.saltar_para("9", ids, ordem)  # fora do universo (ex.: não sorteado na segunda passada)
+    assert pid is None and "não existe neste conjunto" in aviso
+    assert lg.saltar_para("", ids, ordem) == (None, None)
+    assert lg.saltar_para(None, ids, ordem) == (None, None)
+
+
+# ---- revisão dirigida por lista externa ---------------------------------------------------
+
+
+def test_carregar_lista_plotids_texto(tmp_path):
+    from miradouro.core.erros import ErroMiradouro
+
+    arq = tmp_path / "lista.txt"
+    arq.write_text("# releitura\n141\n150\n\n 184 \n141\n", encoding="utf-8")
+    lista = lg.carregar_lista_plotids(arq)
+    assert lista.ids == ("141", "150", "184") and lista.repetidos == 1 and lista.desconhecidos == ()
+    assert lista.nome == "lista.txt" and len(lista.sha256) == 64 and lista.caminho == arq.resolve()
+    assert lista.carimbo() == {"arquivo": "lista.txt", "sha256": lista.sha256, "n": 3}
+    # Mesmo conteúdo → mesmo hash; conteúdo diferente → hash diferente.
+    outro = tmp_path / "copia.txt"
+    outro.write_bytes(arq.read_bytes())
+    assert lg.carregar_lista_plotids(outro).sha256 == lista.sha256
+    outro.write_text("141\n", encoding="utf-8")
+    assert lg.carregar_lista_plotids(outro).sha256 != lista.sha256
+    # Validação contra o projeto: desconhecidos saem de ids.
+    lista = lg.carregar_lista_plotids(arq, ids_validos=["141", "184", "999"])
+    assert lista.ids == ("141", "184") and lista.desconhecidos == ("150",)
+    with pytest.raises(ErroMiradouro):
+        lg.carregar_lista_plotids(tmp_path / "nao_existe.txt")
+    (tmp_path / "vazia.txt").write_text("# só comentário\n\n", encoding="utf-8")
+    with pytest.raises(ErroMiradouro):
+        lg.carregar_lista_plotids(tmp_path / "vazia.txt")
+
+
+def test_carregar_lista_plotids_csv_le_so_a_coluna_plotid(tmp_path):
+    # O critério (outras colunas) nunca é lido: só a coluna PLOTID, em qualquer posição e caixa.
+    arq = tmp_path / "lista.csv"
+    arq.write_text("estrato,plotid,criterio\n2,141,SEGREDO\n7,20,SEGREDO\n2,141,SEGREDO\n", encoding="utf-8")
+    lista = lg.carregar_lista_plotids(arq)
+    assert lista.ids == ("141", "20") and lista.repetidos == 1
+    assert "SEGREDO" not in repr(lista) and "estrato" not in repr(lista)
+    # Ponto-e-vírgula e aspas; sem cabeçalho vale a primeira coluna.
+    arq.write_text('"3";x\n"5";y\n', encoding="utf-8")
+    assert lg.carregar_lista_plotids(arq).ids == ("3", "5")
+    arq.write_text("PLOTID\n7\n8\n", encoding="utf-8")
+    assert lg.carregar_lista_plotids(arq).ids == ("7", "8")
+
+
+def test_ordem_dirigida_e_revisto_na_lista():
+    sha = "abc"
+    metas = {
+        "1": {"modo": "dirigida", "lista": {"sha256": sha}},  # revisto com esta lista
+        "2": {"modo": "dirigida", "lista": {"sha256": "outra"}},  # revisto com outra lista
+        "3": {"modo": "pendentes"},
+    }
+    assert lg.revisto_na_lista(metas["1"], sha) and not lg.revisto_na_lista(metas["2"], sha)
+    assert not lg.revisto_na_lista(metas["3"], sha) and not lg.revisto_na_lista(None, sha)
+    ids = ["4", "1", "3", "2"]  # ordem do arquivo, não do CSV
+    assert lg.ordem_dirigida(ids, metas, "todos", sha) == ["4", "1", "3", "2"]
+    assert lg.ordem_dirigida(ids, metas, "pendentes", sha) == ["4", "3", "2"]
+    with pytest.raises(ValueError):
+        lg.ordem_dirigida(ids, metas, "revisao", sha)
+
+
+# ---- amostra persistida da segunda passada ------------------------------------------------
+
+
+def test_sortear_gravar_e_carregar_amostra_segunda(paraopeba, tmp_path):
+    from miradouro.core.erros import ErroMiradouro
+
+    ids = [str(i) for i in range(1, 41)]
+    vals = {i: {"classe_ref": "1", "confianca": "baixa" if i in ("3", "9") else "alta"} for i in ids[:30]}
+    amostra = lg.sortear_amostra_segunda(paraopeba, ids, vals, 0.1, interprete_previsto="hugo2p", respostas_sha256="x" * 64)
+    assert amostra["baixa"] == ["3", "9"] and len(amostra["controle"]) == 3  # 10 % de 28 elegíveis
+    assert amostra["n_respondidos"] == 30 and amostra["n_elegiveis_controle"] == 28
+    assert amostra["semente"] == paraopeba.hash_yaml and amostra["interprete_previsto"] == "hugo2p"
+    # Coincide com a seleção em memória usada pela interface (mesma semente).
+    assert amostra["controle"] == lg.selecionar_segunda_passada(ids, vals, paraopeba.condicao_revisao(), 0.1, semente=paraopeba.hash_yaml)[1]
+    assert lg.carregar_amostra_segunda(tmp_path) is None
+    destino = lg.gravar_amostra_segunda(tmp_path, amostra)
+    assert destino == tmp_path / lg.ARQUIVO_AMOSTRA
+    assert lg.carregar_amostra_segunda(tmp_path) == amostra
+    destino.write_text("{}")
+    with pytest.raises(ErroMiradouro):
+        lg.carregar_amostra_segunda(tmp_path)

@@ -145,3 +145,53 @@ def test_app_comando_segunda_passada_e_consenso(yaml_cli, monkeypatch):
     (yaml_cli.parent / "respostas" / "segunda" / "respostas.json").write_text("{}")
     assert main(["app", str(yaml_cli), "--consenso", "--sem-navegador"]) == CODIGO_OK
     assert chamadas[-1][-2:] == ["--passada", "consenso"]
+
+
+def test_app_comando_lista_dirigida(yaml_cli, monkeypatch, capsys):
+    pytest.importorskip("streamlit")
+    import subprocess
+
+    chamadas = []
+    monkeypatch.setattr(subprocess, "call", lambda cmd: chamadas.append(cmd) or 0)
+    lista = yaml_cli.parent / "lista.txt"
+    lista.write_text("p3\np1\np3\n", encoding="utf-8")
+    assert main(["app", str(yaml_cli), "--interprete", "ana", "--lista", str(lista), "--sem-navegador"]) == CODIGO_OK
+    assert chamadas[-1][-4:] == ["--passada", "dirigida", "--lista", str(lista.resolve())]
+    err = capsys.readouterr().err
+    assert "Revisão dirigida: 2 pontos de lista.txt" in err and "1 repetidos ignorados" in err
+    lista.write_text("p1\nzzz\n", encoding="utf-8")
+    assert main(["app", str(yaml_cli), "--lista", str(lista)]) == CODIGO_ERRO
+    assert "zzz" in capsys.readouterr().err
+    assert main(["app", str(yaml_cli), "--lista", str(yaml_cli.parent / "nao_existe.txt")]) == CODIGO_ERRO
+    with pytest.raises(SystemExit):  # argparse: --lista, --segunda-passada e --consenso são exclusivos
+        main(["app", str(yaml_cli), "--lista", str(lista), "--consenso"])
+
+
+def test_sortear_persiste_amostra(yaml_cli, capsys):
+    import json
+
+    from miradouro.core import Armazenamento, carregar_projeto
+
+    y = str(yaml_cli)
+    assert main(["sortear", y, "--fracao-controle", "0.5"]) == CODIGO_ERRO  # sem primeira passada
+    assert "não há respostas" in capsys.readouterr().err
+    projeto = carregar_projeto(yaml_cli)
+    arm = Armazenamento(projeto, interprete="ana")
+    arm.gravar("p1", {"classe_ref": "1", "confianca": "baixa", "classe_alt": "2"})
+    arm.gravar("p2", {"classe_ref": "2", "confianca": "alta"})
+    arm.gravar("p3", {"classe_ref": "6", "confianca": "alta"})
+    assert main(["sortear", y, "--fracao-controle", "1.5"]) == CODIGO_ERRO
+    assert main(["sortear", y, "--fracao-controle", "0.5", "--interprete", "hugo2p"]) == CODIGO_OK
+    out = capsys.readouterr().out
+    assert "1 de confiança baixa + 1 de controle" in out and "= 2 pontos" in out and "--interprete hugo2p --segunda-passada" in out
+    arquivo = yaml_cli.parent / "respostas" / "segunda" / "amostra.json"
+    d = json.loads(arquivo.read_text(encoding="utf-8"))
+    assert d["baixa"] == ["p1"] and len(d["controle"]) == 1 and d["interprete_previsto"] == "hugo2p"
+    assert d["fracao_controle"] == 0.5 and len(d["respostas_sha256"]) == 64 and d["projeto"]["yaml_sha256"] == projeto.hash_yaml
+    # Não refaz sem --forcar; refaz com --forcar; nunca depois que a segunda passada começou.
+    assert main(["sortear", y, "--fracao-controle", "0.5"]) == CODIGO_ERRO
+    assert "--forcar" in capsys.readouterr().err
+    assert main(["sortear", y, "--fracao-controle", "0.5", "--forcar"]) == CODIGO_OK
+    (arquivo.parent / "respostas.json").write_text("{}")
+    assert main(["sortear", y, "--fracao-controle", "0.5", "--forcar"]) == CODIGO_ERRO
+    assert "já começou" in capsys.readouterr().err

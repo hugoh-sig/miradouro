@@ -281,7 +281,7 @@ def test_teclado_simulado_via_evento(projeto_app, monkeypatch):
     focos: list[dict | None] = []
     from miradouro.interface import teclado
 
-    def falso(rotulos_texto=None, focar=None):
+    def falso(rotulos_texto=None, focar=None, **kw):
         focos.append(focar)
         return eventos[-1]
 
@@ -416,3 +416,136 @@ def test_consenso(projeto_app, monkeypatch):
     _radio(at, "Modo").set_value("todos_segunda").run()
     assert at.subheader[0].value.startswith("PLOTID p1 · ponto 1 de 2")
     assert "consenso registrado" in _todo_texto(at)
+
+
+# ---- salto direto por PLOTID -----------------------------------------------------------
+
+
+def _saltar(at: AppTest, pid: str) -> AppTest:
+    next(t for t in at.text_input if t.label == "Ir para o ponto").set_value(pid).run()
+    return at
+
+
+def test_ir_para_o_ponto_em_qualquer_modo(projeto_app):
+    at = _app()
+    _saltar(at, "p3")
+    assert at.subheader[0].value.startswith("PLOTID p3 · ponto 3 de 3")
+    assert next(t for t in at.text_input if t.label == "Ir para o ponto").value == ""  # campo limpo após o salto
+    _saltar(at, "zzz")
+    assert any("não existe neste conjunto" in i.value for i in at.info) and at.subheader[0].value.startswith("PLOTID p3")
+    # Responde p1 e volta a ele no modo pendentes: está fora do filtro, mas abre com aviso.
+    _saltar(at, "p1")
+    _radio(at, "classe_ref").set_value("1").run()
+    _radio(at, "confianca").set_value("alta").run()
+    _botao(at, "Confirmar").click().run()
+    assert at.subheader[0].value.startswith("PLOTID p2")
+    _saltar(at, "p1")
+    assert at.subheader[0].value.startswith("PLOTID p1") and any("fora da lista do modo atual" in i.value for i in at.info)
+    assert any("Já respondido" in s.value for s in at.success)
+    _radio(at, "Modo").set_value("revisao").run()
+    _saltar(at, "p2")
+    assert at.subheader[0].value.startswith("PLOTID p2")
+    assert SENTINELA_VALOR not in _todo_texto(at)
+
+
+def test_ir_para_o_ponto_na_segunda_passada_respeita_o_sorteio(projeto_app, monkeypatch):
+    _primeira_passada(projeto_app)
+    monkeypatch.setenv(modulo_app.VAR_PASSADA, "segunda")
+    monkeypatch.setenv(modulo_app.VAR_FRACAO, "0.5")
+    monkeypatch.setenv(modulo_app.VAR_INTERPRETE, "bia")
+    at = _app()
+    sorteados = json.loads((projeto_app.parent / "respostas" / "segunda" / "amostra.json").read_text(encoding="utf-8"))
+    fora = next(p for p in ("p2", "p3") if p not in sorteados["controle"])
+    _saltar(at, fora)
+    assert any("não existe neste conjunto" in i.value for i in at.info)
+    assert at.subheader[0].value.startswith("PLOTID p1")
+    assert "Já respondido" not in _todo_texto(at)
+
+
+# ---- segunda passada: amostra persistida ----------------------------------------------------
+
+
+def test_segunda_passada_persiste_e_reusa_a_amostra(projeto_app, monkeypatch):
+    projeto, arm = _primeira_passada(projeto_app)
+    monkeypatch.setenv(modulo_app.VAR_PASSADA, "segunda")
+    monkeypatch.setenv(modulo_app.VAR_FRACAO, "0.5")
+    monkeypatch.setenv(modulo_app.VAR_INTERPRETE, "bia")
+    at = _app()
+    arquivo = projeto_app.parent / "respostas" / "segunda" / "amostra.json"
+    amostra = json.loads(arquivo.read_text(encoding="utf-8"))
+    assert amostra["baixa"] == ["p1"] and len(amostra["controle"]) == 1 and amostra["interprete_previsto"] == "bia"
+    assert "Amostra sorteada em" in _todo_texto(at)
+    # A amostra gravada manda, mesmo que as respostas da primeira passada mudem depois.
+    arm.gravar("p3", {"classe_ref": "6", "confianca": "baixa", "classe_alt": "1"})
+    amostra["controle"] = ["p2"]
+    arquivo.write_text(json.dumps(amostra), encoding="utf-8")
+    at2 = _app()
+    assert "2 pontos, 1 de controle" in _todo_texto(at2)
+    _saltar(at2, "p3")
+    assert any("não existe neste conjunto" in i.value for i in at2.info)
+    _saltar(at2, "p2")
+    assert at2.subheader[0].value.startswith("PLOTID p2")
+
+
+# ---- revisão dirigida por lista externa ---------------------------------------------------
+
+
+def _lista(projeto_app: Path, conteudo: str, nome: str = "lista.csv") -> Path:
+    arq = projeto_app.parent / nome
+    arq.write_text(conteudo, encoding="utf-8")
+    return arq
+
+
+def test_revisao_dirigida(projeto_app, monkeypatch):
+    projeto, arm = _primeira_passada(projeto_app)
+    # CSV com o critério numa coluna extra: a interface só pode conhecer os PLOTIDs.
+    arq = _lista(projeto_app, "criterio,PLOTID\nMOTIVO_SECRETO_A,p3\nMOTIVO_SECRETO_B,p1\n")
+    monkeypatch.setenv(modulo_app.VAR_PASSADA, "dirigida")
+    monkeypatch.setenv(modulo_app.VAR_LISTA, str(arq))
+    monkeypatch.setenv(modulo_app.VAR_INTERPRETE, "ana")
+    at = _app()
+    texto = _todo_texto(at)
+    assert "Revisão dirigida" in texto and "2 pontos da lista `lista.csv`" in texto
+    assert "MOTIVO_SECRETO" not in texto and "criterio" not in texto and SENTINELA_VALOR not in texto
+    assert list(at.radio[0].options) == ["Da lista, ainda não revistos", "Toda a lista"]
+    # Ordem do arquivo (p3 antes de p1), resposta anterior visível e rascunho preenchido.
+    assert at.subheader[0].value.startswith("PLOTID p3 · ponto 1 de 2")
+    assert any("Já respondido" in s.value and "classe_ref = 6" in s.value for s in at.success)
+    assert _radio(at, "classe_ref").value == "6"
+    # Confirmar sem mudar nada conta como revisão e carimba a lista.
+    _botao(at, "Confirmar").click().run()
+    r = _respostas(projeto_app)["p3"]
+    assert r["valores"]["classe_ref"] == "6" and r["revisoes"] == 1 and r["interprete"] == "ana"
+    assert r["meta"]["modo"] == "dirigida" and r["meta"]["filtro"] == "pendentes"
+    assert r["meta"]["lista"]["arquivo"] == "lista.csv" and len(r["meta"]["lista"]["sha256"]) == 64 and r["meta"]["lista"]["n"] == 2
+    assert "MOTIVO_SECRETO" not in json.dumps(r)
+    # Avançou para p1 (ponto 1 de 1 entre os não revistos); mudança de valor também é revisão.
+    assert at.subheader[0].value.startswith("PLOTID p1 · ponto 1 de 1")
+    _radio(at, "confianca").set_value("alta").run()
+    _botao(at, "Confirmar").click().run()
+    r = _respostas(projeto_app)["p1"]
+    assert r["valores"]["confianca"] == "alta" and r["revisoes"] == 1 and r["meta"]["modo"] == "dirigida"
+    assert not at.subheader and any("Não há mais pontos neste modo" in i.value for i in at.info)
+    _radio(at, "Modo").set_value("todos").run()
+    assert at.subheader[0].value.startswith("PLOTID p3 · ponto 1 de 2") and "já revisto nesta lista" in _todo_texto(at)
+    # p2 não está na lista: o salto recusa.
+    _saltar(at, "p2")
+    assert any("não existe neste conjunto" in i.value for i in at.info)
+    # A sessão ficou registrada com a lista e o hash; nada do critério no arquivo.
+    dados = json.loads((projeto_app.parent / "respostas" / "respostas.json").read_text(encoding="utf-8"))
+    sessao = dados["sessoes"][-1]
+    assert sessao["modo"] == "dirigida" and sessao["lista"]["arquivo"] == "lista.csv" and sessao["lista"]["n"] == 2
+    assert "MOTIVO_SECRETO" not in json.dumps(dados)
+    # Reabrir com a mesma lista: nada pendente (já revistos com este hash).
+    at2 = _app()
+    assert not at2.subheader and any("Nenhum ponto neste modo" in s.value for s in at2.success)
+
+
+def test_revisao_dirigida_recusa_plotid_desconhecido(projeto_app, monkeypatch):
+    _primeira_passada(projeto_app)
+    arq = _lista(projeto_app, "p1\np9\n", nome="lista.txt")
+    monkeypatch.setenv(modulo_app.VAR_PASSADA, "dirigida")
+    monkeypatch.setenv(modulo_app.VAR_LISTA, str(arq))
+    at = AppTest.from_file(modulo_app.__file__, default_timeout=60)
+    at.run()
+    assert at.error and "p9" in at.error[0].value and not at.radio

@@ -467,3 +467,214 @@ def ordem_consenso(
         div = set(divergencias(primeira, segunda, campo))
         return [i for i in ids if i in div and i not in feitos]
     raise ValueError(f"filtro de consenso desconhecido: {filtro!r}")
+
+
+# ---- salto direto por PLOTID -------------------------------------------------------------
+
+
+def saltar_para(entrada: str | None, ids: list[str], ordem: list[str]) -> tuple[str | None, str | None]:
+    """Resolve o campo "ir para o ponto": devolve ``(plotid, aviso)``.
+
+    ``ids`` é o universo do modo atual (todos os pontos na primeira passada; só os
+    sorteados na segunda; só a lista na revisão dirigida) e ``ordem`` a lista que o
+    filtro mostra. Um ponto do universo fora do filtro é aberto mesmo assim, com
+    aviso; um ponto fora do universo nunca é aberto (na segunda passada isso
+    preservaria a cegueira por construção).
+    """
+    alvo = (entrada or "").strip()
+    if not alvo:
+        return None, None
+    if alvo not in ids:
+        return None, f"PLOTID {alvo!r} não existe neste conjunto."
+    if alvo not in ordem:
+        return alvo, f"PLOTID {alvo} está fora da lista do modo atual; aberto mesmo assim."
+    return alvo, None
+
+
+# ---- revisão dirigida por lista externa ---------------------------------------------------
+
+FILTROS_DIRIGIDA: dict[str, str] = {"pendentes": "Da lista, ainda não revistos", "todos": "Toda a lista"}
+MODO_DIRIGIDA = "dirigida"
+_DELIMITADORES = (",", ";", "\t")
+
+
+@dataclass(frozen=True)
+class ListaDirigida:
+    """Lista externa de PLOTIDs. Guarda só os identificadores, o nome do arquivo e o hash.
+
+    O critério que gerou a lista não é lido nem armazenado: de um CSV só a coluna
+    ``PLOTID`` é consultada; as demais colunas são descartadas na leitura.
+    """
+
+    caminho: Path
+    sha256: str
+    ids: tuple[str, ...]
+    repetidos: int = 0
+    desconhecidos: tuple[str, ...] = ()
+
+    @property
+    def nome(self) -> str:
+        return self.caminho.name
+
+    def carimbo(self) -> dict[str, Any]:
+        """Metadados de rastreabilidade gravados na sessão e em cada resposta."""
+        return {"arquivo": self.nome, "sha256": self.sha256, "n": len(self.ids)}
+
+
+def _celulas(linha: str) -> list[str]:
+    for d in _DELIMITADORES:
+        if d in linha:
+            return [c.strip().strip('"') for c in linha.split(d)]
+    return [linha.strip().strip('"')]
+
+
+def carregar_lista_plotids(caminho: str | Path, ids_validos: Iterable[str] | None = None) -> ListaDirigida:
+    """Lê uma lista de PLOTIDs de um arquivo texto (um por linha) ou CSV (coluna ``PLOTID``).
+
+    Linhas vazias e iniciadas por ``#`` são ignoradas. Num CSV com cabeçalho, só a
+    coluna ``PLOTID`` (qualquer caixa) é lida; sem cabeçalho, vale a primeira
+    coluna. Repetições são removidas mantendo a primeira ocorrência e a ordem do
+    arquivo. Com ``ids_validos``, os PLOTIDs ausentes vão para ``desconhecidos``
+    (e ficam fora de ``ids``).
+
+    Raises:
+        ErroMiradouro: arquivo inexistente ou sem nenhum PLOTID.
+    """
+    import hashlib
+
+    from miradouro.core.erros import ErroMiradouro
+
+    caminho = Path(caminho)
+    if not caminho.is_file():
+        raise ErroMiradouro(f"lista de PLOTIDs não encontrada: {caminho}")
+    dados = caminho.read_bytes()
+    sha = hashlib.sha256(dados).hexdigest()
+    try:
+        texto = dados.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        texto = dados.decode("latin-1")
+
+    coluna: int | None = None
+    vistos: set[str] = set()
+    ids: list[str] = []
+    repetidos = 0
+    primeira = True
+    for bruta in texto.splitlines():
+        linha = bruta.strip()
+        if not linha or linha.startswith("#"):
+            continue
+        celulas = _celulas(linha)
+        if primeira:
+            primeira = False
+            cabecalho = [c.upper() for c in celulas]
+            if "PLOTID" in cabecalho:
+                coluna = cabecalho.index("PLOTID")
+                continue
+            coluna = 0
+        valor = celulas[coluna] if coluna is not None and coluna < len(celulas) else ""
+        if not valor:
+            continue
+        if valor in vistos:
+            repetidos += 1
+            continue
+        vistos.add(valor)
+        ids.append(valor)
+    if not ids:
+        raise ErroMiradouro(f"lista de PLOTIDs sem nenhum identificador: {caminho}")
+
+    desconhecidos: tuple[str, ...] = ()
+    if ids_validos is not None:
+        validos = set(ids_validos)
+        desconhecidos = tuple(i for i in ids if i not in validos)
+        ids = [i for i in ids if i in validos]
+    return ListaDirigida(caminho=caminho.resolve(), sha256=sha, ids=tuple(ids), repetidos=repetidos, desconhecidos=desconhecidos)
+
+
+def revisto_na_lista(meta: Mapping[str, Any] | None, sha256: str) -> bool:
+    """True se a resposta já foi gravada no modo dirigido com esta mesma lista."""
+    if not meta or meta.get("modo") != MODO_DIRIGIDA:
+        return False
+    lista = meta.get("lista") or {}
+    return lista.get("sha256") == sha256
+
+
+def ordem_dirigida(
+    ids_lista: Iterable[str],
+    metas_por_id: Mapping[str, Mapping[str, Any]],
+    filtro: str,
+    sha256: str,
+) -> list[str]:
+    """Ordem do modo dirigido (a ordem do arquivo): toda a lista, ou só os ainda não revistos com ela."""
+    ids = list(ids_lista)
+    if filtro == "todos":
+        return ids
+    if filtro == "pendentes":
+        return [i for i in ids if not revisto_na_lista(metas_por_id.get(i), sha256)]
+    raise ValueError(f"filtro de revisão dirigida desconhecido: {filtro!r}")
+
+
+# ---- amostra persistida da segunda passada ------------------------------------------------
+
+ARQUIVO_AMOSTRA = "amostra.json"  # em <saida>/segunda/
+
+
+def sortear_amostra_segunda(
+    projeto: Projeto,
+    ids: list[str],
+    valores_por_id: Mapping[str, Mapping[str, Any]],
+    fracao_controle: float,
+    *,
+    interprete_previsto: str | None = None,
+    respostas_sha256: str | None = None,
+) -> dict[str, Any]:
+    """Sorteia a segunda passada (:func:`selecionar_segunda_passada`) e devolve o registro
+    serializável que fica em ``segunda/amostra.json``: quem entrou, por quê e com que semente."""
+    from datetime import datetime, timezone
+
+    from miradouro import __version__
+
+    semente = projeto.hash_yaml or projeto.nome
+    baixa, controle = selecionar_segunda_passada(ids, valores_por_id, projeto.condicao_revisao(), fracao_controle, semente=semente)
+    elegiveis = [i for i in ids if i in valores_por_id and i not in set(baixa)]
+    return {
+        "formato": 1,
+        "gerado_em": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "miradouro_versao": __version__,
+        "projeto": {"nome": projeto.nome, "yaml_sha256": projeto.hash_yaml},
+        "respostas_sha256": respostas_sha256,
+        "interprete_previsto": interprete_previsto,
+        "fracao_controle": fracao_controle,
+        "semente": semente,
+        "n_respondidos": sum(1 for i in ids if i in valores_por_id),
+        "n_elegiveis_controle": len(elegiveis),
+        "baixa": list(baixa),
+        "controle": list(controle),
+    }
+
+
+def gravar_amostra_segunda(pasta_segunda: str | Path, dados: Mapping[str, Any]) -> Path:
+    import json
+
+    from miradouro.core.respostas import escrever_atomico
+
+    destino = Path(pasta_segunda) / ARQUIVO_AMOSTRA
+    escrever_atomico(destino, json.dumps(dict(dados), ensure_ascii=False, indent=2))
+    return destino
+
+
+def carregar_amostra_segunda(pasta_segunda: str | Path) -> dict[str, Any] | None:
+    """Amostra persistida (``baixa`` + ``controle``), ou None se ainda não foi sorteada."""
+    import json
+
+    from miradouro.core.erros import ErroMiradouro
+
+    arquivo = Path(pasta_segunda) / ARQUIVO_AMOSTRA
+    if not arquivo.is_file():
+        return None
+    try:
+        dados = json.loads(arquivo.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError) as e:
+        raise ErroMiradouro(f"{arquivo} não é JSON válido: {e}") from None
+    if not isinstance(dados, dict) or "baixa" not in dados or "controle" not in dados:
+        raise ErroMiradouro(f"{arquivo} não tem o formato de amostra da segunda passada")
+    return dados

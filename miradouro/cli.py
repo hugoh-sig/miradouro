@@ -6,7 +6,9 @@ Comandos do Sprint 1:
 * ``chips listar`` — provedores registrados.
 * ``chips gerar <projeto.yaml>`` — pré-computa os chips em lote (com cache).
 * ``chips status <projeto.yaml>`` — quantos chips já existem por provedor.
-* ``app <projeto.yaml> [--interprete id]`` — interface de interpretação (Streamlit).
+* ``app <projeto.yaml> [--interprete id]`` — interface de interpretação (Streamlit);
+  ``--lista arquivo`` abre a revisão dirigida por lista externa de PLOTIDs.
+* ``sortear <projeto.yaml> --fracao-controle F`` — sorteia e persiste a amostra da segunda passada.
 * ``exportar acatama <projeto.yaml> --mapa raster.tif`` — yml + GeoJSON + CSV para o AcATaMa.
 * ``exportar csv <projeto.yaml>`` — tabela plana de referência (versionável).
 * ``relatorio <projeto.yaml>`` — relatório de sessão em Markdown + JSON.
@@ -100,7 +102,15 @@ def _parser() -> argparse.ArgumentParser:
     grupo = app.add_mutually_exclusive_group()
     grupo.add_argument("--segunda-passada", action="store_true", help="segunda interpretação cega dos pontos de confiança baixa (grava em <saida>/segunda)")
     grupo.add_argument("--consenso", action="store_true", help="resolve divergências entre as duas passadas no arquivo principal")
-    app.add_argument("--fracao-controle", type=float, default=0.0, metavar="F", help="na segunda passada, fração aleatória de controle dos demais pontos (ex.: 0.05)")
+    grupo.add_argument("--lista", default=None, metavar="ARQUIVO", help="revisão dirigida: navega só pelos PLOTIDs do arquivo (texto, um por linha, ou CSV com coluna PLOTID)")
+    app.add_argument("--fracao-controle", type=float, default=0.0, metavar="F", help="na segunda passada, fração aleatória de controle dos demais pontos (ex.: 0.05); ignorada se segunda/amostra.json já existe")
+
+    # sortear
+    sor = sub.add_parser("sortear", help="sorteia e persiste a amostra da segunda passada cega (segunda/amostra.json), sem abrir a interface")
+    sor.add_argument("projeto", help="caminho do projeto.yaml")
+    sor.add_argument("--fracao-controle", type=float, required=True, metavar="F", help="fração aleatória de controle dos pontos que não são de confiança baixa (ex.: 0.10)")
+    sor.add_argument("--interprete", default=None, metavar="ID", help="intérprete previsto para a segunda passada (só registro)")
+    sor.add_argument("--forcar", action="store_true", help="substitui uma amostra já sorteada (não permitido se a segunda passada já começou)")
     return p
 
 
@@ -295,6 +305,40 @@ def cmd_relatorio(args: argparse.Namespace) -> int:
     return CODIGO_OK
 
 
+def cmd_sortear(args: argparse.Namespace) -> int:
+    import hashlib
+
+    from miradouro.core.respostas import Armazenamento
+    from miradouro.interface import logica as lg
+
+    if not (0.0 <= args.fracao_controle <= 1.0):
+        raise ErroMiradouro("--fracao-controle deve estar entre 0 e 1")
+    projeto = carregar_projeto(args.projeto)
+    pontos = carregar_pontos(projeto.caminho_pontos)
+    primeira = Armazenamento(projeto, interprete="sorteio")
+    if not primeira.arquivo.exists():
+        raise ErroMiradouro(f"não há respostas da primeira passada em {primeira.arquivo}")
+    pasta_segunda = projeto.pasta_saida / lg.PASTA_SEGUNDA
+    existente = lg.carregar_amostra_segunda(pasta_segunda)
+    if existente is not None:
+        if (pasta_segunda / "respostas.json").exists():
+            raise ErroMiradouro(f"a segunda passada já começou em {pasta_segunda}; a amostra não pode ser refeita")
+        if not args.forcar:
+            raise ErroMiradouro(f"amostra já sorteada em {pasta_segunda / lg.ARQUIVO_AMOSTRA} ({existente.get('gerado_em')}); use --forcar para substituir")
+    vals = {pid: r.valores for pid, r in primeira.todas().items()}
+    amostra = lg.sortear_amostra_segunda(
+        projeto, pontos.ids, vals, args.fracao_controle, interprete_previsto=args.interprete,
+        respostas_sha256=hashlib.sha256(primeira.arquivo.read_bytes()).hexdigest(),
+    )
+    destino = lg.gravar_amostra_segunda(pasta_segunda, amostra)
+    print(f"Amostra da segunda passada: {len(amostra['baixa'])} de confiança baixa + {len(amostra['controle'])} de controle "
+          f"({args.fracao_controle:g} de {amostra['n_elegiveis_controle']} elegíveis) = {len(amostra['baixa']) + len(amostra['controle'])} pontos")
+    print(f"  {destino}")
+    interp = f" --interprete {args.interprete}" if args.interprete else ""
+    print(f"Para interpretar às cegas: python -m miradouro app {projeto.caminho_yaml}{interp} --segunda-passada")
+    return CODIGO_OK
+
+
 def cmd_app(args: argparse.Namespace) -> int:
     import subprocess
 
@@ -303,7 +347,7 @@ def cmd_app(args: argparse.Namespace) -> int:
     except ImportError:
         raise ErroMiradouro("streamlit não instalado: pip install 'miradouro[app]'") from None
     projeto = carregar_projeto(args.projeto)
-    carregar_pontos(projeto.caminho_pontos)  # falha cedo se o CSV estiver quebrado
+    pontos = carregar_pontos(projeto.caminho_pontos)  # falha cedo se o CSV estiver quebrado
     import miradouro.interface
 
     caminho_app = Path(miradouro.interface.__file__).parent / "app.py"
@@ -326,6 +370,15 @@ def cmd_app(args: argparse.Namespace) -> int:
         if not (projeto.pasta_saida / PASTA_SEGUNDA / "respostas.json").exists():
             raise ErroMiradouro(f"--consenso exige a segunda passada em {projeto.pasta_saida / PASTA_SEGUNDA}")
         comando += ["--passada", "consenso"]
+    elif args.lista:
+        from miradouro.interface.logica import carregar_lista_plotids
+
+        lista = carregar_lista_plotids(args.lista, pontos.ids)  # falha cedo: arquivo ausente ou vazio
+        if lista.desconhecidos:
+            raise ErroMiradouro(f"lista {lista.nome}: PLOTID(s) que não existem no projeto: {list(lista.desconhecidos)}")
+        print(f"Revisão dirigida: {len(lista.ids)} pontos de {lista.nome} (sha256 {lista.sha256[:12]}"
+              f"{f', {lista.repetidos} repetidos ignorados' if lista.repetidos else ''})", file=sys.stderr)
+        comando += ["--passada", "dirigida", "--lista", str(lista.caminho)]
     print(f"Abrindo a interface para {projeto.nome} em http://localhost:{args.porta}", file=sys.stderr)
     return subprocess.call(comando)
 
@@ -342,6 +395,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         ("exportar", "acatama"): cmd_exportar_acatama,
         ("exportar", "csv"): cmd_exportar_csv,
         ("relatorio", None): cmd_relatorio,
+        ("sortear", None): cmd_sortear,
     }
     funcao = comandos[(args.comando, getattr(args, "subcomando", None))]
     try:

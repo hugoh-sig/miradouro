@@ -5,18 +5,22 @@ em uso real; a origem fica anotada para que a prioridade seja discutível depois
 Regra: nada aqui altera o desenho de resposta (`campos` do `projeto.yaml`) — ver
 `CLAUDE.md`. Itens que tocarem em `campos` passam pela aprovação prévia de lá.
 
-## Fase 2 (não iniciada)
+## Fase 2 (itens 2.1 e 2.2 entregues em 23/09/2026; 2.3 pendente)
 
 Origem dos três itens: necessidades sentidas no uso real do caso Paraopeba
-(validação do mapa 2023, piloto 3), 16/09/2026. Registrados em 23/09/2026.
+(validação do mapa 2023, piloto 3), 16/09/2026. Registrados em 23/09/2026. Os itens
+2.1 e 2.2 foram antecipados no mesmo dia por necessidade do caso real (auto-passada
+cega e releitura de critério); ver README, seções "Interpretando" e "Revisão dirigida
+por lista externa". Junto veio o comando `sortear`, que persiste a amostra da segunda
+passada em `segunda/amostra.json` (antes o sorteio só existia em memória).
 
-### 2.1 Salto direto por PLOTID
+### 2.1 Salto direto por PLOTID — ENTREGUE (23/09/2026)
 Campo "ir para o ponto N" na interface, disponível em qualquer modo (pendentes, todos,
 revisão, segunda passada). Hoje a navegação é só sequencial (`←` `→`, `Enter`), o que
 torna custoso localizar um ponto específico quando se tem o PLOTID em mãos (ex.: ponto
 citado em relatório, em diário ou em lista de discrepâncias do s08).
 
-### 2.2 Modo de revisão dirigida (lista externa de PLOTIDs)
+### 2.2 Modo de revisão dirigida (lista externa de PLOTIDs) — ENTREGUE (23/09/2026)
 O app aceita uma lista externa de PLOTIDs (arquivo texto, um por linha, ou CSV com
 coluna `PLOTID`) e navega **somente** por ela. A interface **não exibe nem conhece o
 critério** que gerou a lista: recebe apenas os identificadores. A cegueira do
@@ -34,7 +38,7 @@ Requisitos mínimos a decidir na implementação: o modo grava com `modo` própr
 hash entram no relatório de sessão; edições nesse modo contam como `revisoes`, nunca
 sobrescrevem silenciosamente. A lista não é interpretada nem filtrada pelo app.
 
-### 2.3 Comando de backup embutido
+### 2.3 Comando de backup embutido — PENDENTE
 `miradouro backup <projeto.yaml> --destino <pasta>`: cópia íntegra e datada de
 `respostas.json` (e, opcionalmente, da pasta `respostas/`) para um destino escolhido
 pelo usuário, independente da rotação automática de `respostas/backups/` que ocorre

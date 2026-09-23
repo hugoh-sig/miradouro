@@ -130,3 +130,19 @@ def test_concordancia_no_relatorio(cenario):
     assert "## Segunda passada e consenso" in md and "(1 de controle)" in md
     assert main(["relatorio", str(projeto.caminho_yaml), "--nome", "r3"]) == CODIGO_OK  # detecta <respostas>/segunda sozinho
     assert "Segunda passada" in (arm.pasta / "relatorios" / "r3.md").read_text()
+
+
+def test_revisao_dirigida_no_relatorio(cenario):
+    projeto, pontos, arm = cenario
+    d = dados_relatorio(projeto, pontos, arm)
+    assert d["revisao_dirigida"] == [] and "Revisão dirigida" not in markdown_relatorio(d)
+    carimbo = {"arquivo": "lista.txt", "sha256": "f" * 64, "n": 2}
+    arm.abrir_sessao({"modo": "dirigida", "lista": carimbo})
+    arm.gravar("p1", {"classe_ref": "1", "confianca": "alta"}, meta={"modo": "dirigida", "filtro": "pendentes", "lista": carimbo})
+    d = dados_relatorio(projeto, pontos, arm)
+    rd = d["revisao_dirigida"]
+    assert len(rd) == 1 and rd[0]["lista"] == carimbo and rd[0]["gravadas"] == 1 and rd[0]["plotids"] == ["p1"]
+    assert rd[0]["interprete"] == "ana" and d["sinais"]["com_revisoes"] == ["p1", "p2"]
+    md = markdown_relatorio(d)
+    assert "## Revisão dirigida (listas externas)" in md and "| lista.txt | ffffffffffff | 2 | 1 |" in md
+    assert "critério que gerou cada lista não é conhecido" in md

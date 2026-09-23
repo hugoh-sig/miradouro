@@ -8,7 +8,7 @@
 (function () {
   const parentWin = window.parent;
   const parentDoc = parentWin.document;
-  let args = { rotulos_texto: [], focar: null };
+  let args = { rotulos_texto: [], focar: null, rotulos_sem_confirmar: [] };
   let ultimoFoco = null;
 
   // Rola até o widget cujo rótulo começa com `rotulo` e foca o primeiro controle dele.
@@ -46,8 +46,11 @@
     if (emTexto) {
       if (e.key === "Escape") { t.blur(); e.preventDefault(); return; }
       if (e.key === "Enter" && tag !== "TEXTAREA") {
-        // Deixa o Streamlit gravar o valor do campo (blur) e só então confirma.
         e.preventDefault(); e.stopPropagation();
+        // Campo de navegação (ex.: "Ir para o ponto"): Enter só entrega o valor; não confirma.
+        const semConfirmar = new Set(args.rotulos_sem_confirmar || []);
+        if (semConfirmar.has(t.getAttribute("aria-label"))) { t.blur(); return; }
+        // Deixa o Streamlit gravar o valor do campo (blur) e só então confirma.
         t.blur();
         setTimeout(function () { send({ key: "Enter", code: "Enter", shift: false }); }, 250);
         return;

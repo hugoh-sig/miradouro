@@ -160,6 +160,12 @@ deles, também ao reabrir a interface. *Todos* permite rever qualquer ponto. *Re
 lista os pontos respondidos com confiança baixa (configurável em `interface.revisao` do
 yaml) para a segunda passada; a resposta anterior aparece e o rascunho já vem preenchido.
 
+**Ir para o ponto.** O campo *Ir para o ponto* da barra lateral abre o PLOTID digitado
+(`Enter`) em qualquer modo. Um ponto que existe mas está fora do filtro atual (ex.: já
+respondido, no modo pendentes) abre com aviso; um ponto fora do universo do modo (não
+sorteado na segunda passada, fora da lista na revisão dirigida) não abre. Nesse campo,
+`Enter` só entrega o valor: não confirma a resposta do ponto atual.
+
 **Autosave e auditoria.** Cada `Enter` grava via o núcleo (arquivo atômico). Além dos
 metadados do Sprint 1, a interface registra em `meta`: `duracao_s` (cronômetro por ponto,
 somando visitas; pausa quando nenhum ponto está carregado), `modo`, `interface` e, quando
@@ -178,20 +184,51 @@ O protocolo pede uma segunda interpretação independente dos pontos de confian�
 resolução das divergências por consenso.
 
 ```bash
-# 1) Segunda passada CEGA (outro intérprete): só os pontos de confiança baixa da primeira
-#    passada, mais 5 % aleatórios dos demais como controle. Grava em respostas/segunda/.
-python -m miradouro app exemplos/paraopeba/projeto.yaml --interprete maria --segunda-passada --fracao-controle 0.05
+# 1) Sorteio da amostra (opcional, mas recomendado): persiste em respostas/segunda/amostra.json
+#    quem entra — confiança baixa + fração aleatória de controle — sem abrir a interface.
+python -m miradouro sortear exemplos/paraopeba/projeto.yaml --fracao-controle 0.10 --interprete hugo2p
 
-# 2) Consenso: lista as divergências na classe entre as duas passadas, mostra as duas
+# 2) Segunda passada CEGA: só os pontos sorteados. Grava em respostas/segunda/.
+#    Sem amostra.json, o primeiro início sorteia (com --fracao-controle) e grava o arquivo.
+python -m miradouro app exemplos/paraopeba/projeto.yaml --interprete hugo2p --segunda-passada
+
+# 3) Consenso: lista as divergências na classe entre as duas passadas, mostra as duas
 #    respostas lado a lado e grava a decisão final no arquivo principal.
 python -m miradouro app exemplos/paraopeba/projeto.yaml --interprete hugo --consenso
 ```
 
 Na segunda passada a interface nunca mostra a resposta da primeira; a amostra de controle é
-determinística (semente = hash do yaml) e marcada com `meta.controle`. Rode-a depois de
-concluir a primeira passada, pois o conjunto depende das respostas existentes. No consenso,
-cada decisão guarda em `meta.consenso` as duas respostas originais com seus intérpretes; o
-modo *Todos da segunda passada* permite rever os concordantes também.
+determinística (semente = hash do yaml) e marcada com `meta.controle`. Sorteie depois de
+concluir a primeira passada, pois o conjunto depende das respostas existentes. A amostra
+persistida (`amostra.json`: ids, fração, semente, hash do `respostas.json` de origem, data)
+é reutilizada tal qual nas sessões seguintes, mesmo que a primeira passada mude depois;
+`sortear` recusa refazê-la sem `--forcar` e nunca depois que a segunda passada começou. A
+segunda passada serve tanto a um segundo intérprete (inter-observador) quanto ao mesmo
+intérprete sob outro id, tempos depois (intra-observador). No consenso, cada decisão guarda
+em `meta.consenso` as duas respostas originais com seus intérpretes; o modo *Todos da
+segunda passada* permite rever os concordantes também.
+
+## Revisão dirigida por lista externa
+
+Para reler um subconjunto de pontos (releitura de critério, passada de anotação de um campo
+novo) sem que a ferramenta saiba *por que* eles foram escolhidos:
+
+```bash
+python -m miradouro app exemplos/paraopeba/projeto.yaml --interprete hugo --lista releitura.txt
+```
+
+O arquivo é texto com um PLOTID por linha (`#` comenta) ou CSV com coluna `PLOTID`; de um
+CSV **só essa coluna é lida** — as demais (o critério) são descartadas na leitura e nunca
+chegam à interface, ao `respostas.json` ou ao relatório. A cegueira fica garantida por
+construção, não por disciplina. PLOTIDs inexistentes no projeto abortam antes de abrir;
+repetidos são ignorados. A navegação segue a ordem do arquivo, nos modos *Da lista, ainda
+não revistos* e *Toda a lista*; a resposta anterior aparece e o rascunho vem preenchido.
+
+Rastreabilidade: a sessão é registrada com `modo: dirigida` e `lista: {arquivo, sha256, n}`;
+cada confirmação grava no arquivo principal com `meta.modo = dirigida`, `meta.filtro` e
+`meta.lista`, e conta como revisão (`revisoes + 1`) mesmo sem mudança de valor — é isso que
+torna auditável um "todos mantidos". O relatório de sessão lista as revisões dirigidas por
+sessão, com o arquivo, o hash e quantos pontos foram gravados.
 
 ## Exportando
 
@@ -248,7 +285,8 @@ python -m miradouro relatorio exemplos/paraopeba/projeto.yaml --com-mapa # + cru
 
 Traz progresso, sessões (respostas, tempo interpretando, mediana por ponto, pontos por
 hora), distribuições dos campos, sinais para a segunda passada (confiança baixa, sem
-subsídio, revisões, desfeitos, incompletos, observações, yaml divergente) e, quando existe
+subsídio, revisões, desfeitos, incompletos, observações, yaml divergente), as sessões de
+revisão dirigida (arquivo da lista, hash, gravadas) e, quando existe
 `respostas/segunda/`, a concordância entre passadas e as divergências sem consenso. O
 cruzamento com a classe do mapa só entra com `--com-mapa` e é preliminar: a matriz oficial
 é a do AcATaMa.

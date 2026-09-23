@@ -103,6 +103,23 @@ def dados_relatorio(
         "yaml_divergente": sorted(pid for pid, r in respostas.items() if r.yaml_sha256 and projeto.hash_yaml and r.yaml_sha256 != projeto.hash_yaml),
     }
 
+    revisao_dirigida = []
+    for s in arm.sessoes:
+        if s.get("modo") != "dirigida":
+            continue
+        lista = s.get("lista") or {}
+        gravadas = sorted(pid for pid, r in respostas.items() if r.sessao_id == s["id"] and r.meta.get("modo") == "dirigida")
+        revisao_dirigida.append(
+            {
+                "sessao": s["id"],
+                "interprete": s.get("interprete"),
+                "inicio": s.get("inicio"),
+                "lista": {"arquivo": lista.get("arquivo"), "sha256": lista.get("sha256"), "n": lista.get("n")},
+                "gravadas": len(gravadas),
+                "plotids": gravadas,
+            }
+        )
+
     dados: dict[str, Any] = {
         "projeto": {"nome": projeto.nome, "ano_referencia": projeto.ano_referencia, "yaml": str(projeto.caminho_yaml), "yaml_sha256": projeto.hash_yaml},
         "gerado_em": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -120,6 +137,7 @@ def dados_relatorio(
         "interpretes": interpretes,
         "distribuicoes": distribuicoes,
         "sinais": sinais,
+        "revisao_dirigida": revisao_dirigida,
     }
     if com_mapa:
         dados["cruzamento_mapa"] = cruzamento_com_mapa(projeto, pontos, completas)
@@ -232,6 +250,17 @@ def markdown_relatorio(d: dict[str, Any]) -> str:
         f"- Gravados com outro yaml ({len(s['yaml_divergente'])}): {_lista(s['yaml_divergente'])}",
         "",
     ]
+    if d.get("revisao_dirigida"):
+        md += ["## Revisão dirigida (listas externas)", ""]
+        md.append(
+            _tabela_md(
+                ["sessão", "intérprete", "início", "lista", "sha256", "n na lista", "gravadas"],
+                [[x["sessao"], x["interprete"], (x["inicio"] or "")[:16].replace("T", " "), x["lista"]["arquivo"], (x["lista"]["sha256"] or "")[:12], x["lista"]["n"], x["gravadas"]] for x in d["revisao_dirigida"]],
+            )
+        )
+        md.append("")
+        md.append("O critério que gerou cada lista não é conhecido pela ferramenta; só o arquivo e o hash ficam registrados.")
+        md.append("")
     if "segunda_passada" in d:
         sp = d["segunda_passada"]
         md += [

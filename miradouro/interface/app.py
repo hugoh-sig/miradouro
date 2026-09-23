@@ -32,19 +32,22 @@ from miradouro.interface.teclado import capturar_tecla
 
 VAR_PROJETO = "MIRADOURO_PROJETO"
 VAR_INTERPRETE = "MIRADOURO_INTERPRETE"
-VAR_PASSADA = "MIRADOURO_PASSADA"  # primeira (padrão) | segunda | consenso
+VAR_PASSADA = "MIRADOURO_PASSADA"  # primeira (padrão) | segunda | consenso | dirigida
 VAR_FRACAO = "MIRADOURO_FRACAO_CONTROLE"
+VAR_LISTA = "MIRADOURO_LISTA"  # arquivo da lista de PLOTIDs (modo dirigida)
+ROTULO_SALTO = "Ir para o ponto"
 
 
 # ---- configuração e carga -------------------------------------------------------
 
 
-def configuracao() -> tuple[str | None, str | None, str, float]:
+def configuracao() -> tuple[str | None, str | None, str, float, str | None]:
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--projeto")
     parser.add_argument("--interprete")
-    parser.add_argument("--passada", choices=["primeira", "segunda", "consenso"])
+    parser.add_argument("--passada", choices=["primeira", "segunda", "consenso", "dirigida"])
     parser.add_argument("--fracao-controle", type=float)
+    parser.add_argument("--lista")
     args, _ = parser.parse_known_args(sys.argv[1:])
     passada = args.passada or os.environ.get(VAR_PASSADA) or "primeira"
     fracao = args.fracao_controle if args.fracao_controle is not None else float(os.environ.get(VAR_FRACAO) or 0.0)
@@ -53,6 +56,7 @@ def configuracao() -> tuple[str | None, str | None, str, float]:
         args.interprete or os.environ.get(VAR_INTERPRETE) or None,
         passada,
         fracao,
+        args.lista or os.environ.get(VAR_LISTA) or None,
     )
 
 
@@ -70,24 +74,40 @@ def _campo_classe(projeto) -> str | None:
     return next((c.nome for c in projeto.campos if c.tipo == "classe"), None)
 
 
-def _iniciar(projeto, pontos, interprete: str, passada: str = "primeira", fracao: float = 0.0) -> None:
+def _iniciar(projeto, pontos, interprete: str, passada: str = "primeira", fracao: float = 0.0, lista=None) -> None:
     ss = st.session_state
     if "arm" in ss:
         return
     ss.passada = passada
     ss.controle = set()
     ss.arm_segunda = None
+    ss.lista = None
+    ss.amostra = None
+    extra_sessao = None
     if passada == "segunda":
         # Cega: lê a primeira passada só para escolher os pontos; grava em outra pasta.
-        primeira = Armazenamento(projeto, interprete=interprete)
-        vals = {pid: r.valores for pid, r in primeira.todas().items()}
-        baixa, controle = lg.selecionar_segunda_passada(
-            pontos.ids, vals, projeto.condicao_revisao(), fracao, semente=projeto.hash_yaml or projeto.nome
-        )
-        ss.controle = set(controle)
-        ss.ids = [i for i in pontos.ids if i in set(baixa) | ss.controle]
-        ss.arm = Armazenamento(projeto, interprete=interprete, pasta=projeto.pasta_saida / lg.PASTA_SEGUNDA)
+        # A amostra sorteada fica persistida em segunda/amostra.json (`miradouro sortear`
+        # ou o primeiro início deste modo) e é reutilizada tal qual nas sessões seguintes.
+        pasta_segunda = projeto.pasta_saida / lg.PASTA_SEGUNDA
+        amostra = lg.carregar_amostra_segunda(pasta_segunda)
+        if amostra is None:
+            primeira = Armazenamento(projeto, interprete=interprete)
+            vals = {pid: r.valores for pid, r in primeira.todas().items()}
+            amostra = lg.sortear_amostra_segunda(projeto, pontos.ids, vals, fracao, interprete_previsto=interprete)
+            lg.gravar_amostra_segunda(pasta_segunda, amostra)
+        ss.amostra = amostra
+        ss.controle = set(amostra["controle"])
+        selecionados = set(amostra["baixa"]) | ss.controle
+        ss.ids = [i for i in pontos.ids if i in selecionados]
+        ss.arm = Armazenamento(projeto, interprete=interprete, pasta=pasta_segunda)
         ss.filtros = lg.FILTROS_SEGUNDA
+    elif passada == "dirigida":
+        # Revisão dirigida: só a lista externa; a interface conhece apenas os PLOTIDs.
+        ss.lista = lista
+        ss.ids = list(lista.ids)
+        ss.arm = Armazenamento(projeto, interprete=interprete)
+        ss.filtros = lg.FILTROS_DIRIGIDA
+        extra_sessao = {"modo": lg.MODO_DIRIGIDA, "lista": lista.carimbo()}
     elif passada == "consenso":
         ss.arm = Armazenamento(projeto, interprete=interprete)
         ss.arm_segunda = Armazenamento(projeto, interprete=interprete, pasta=projeto.pasta_saida / lg.PASTA_SEGUNDA)
@@ -97,7 +117,7 @@ def _iniciar(projeto, pontos, interprete: str, passada: str = "primeira", fracao
         ss.arm = Armazenamento(projeto, interprete=interprete)
         ss.ids = pontos.ids
         ss.filtros = lg.FILTROS
-    ss.arm.abrir_sessao()
+    ss.arm.abrir_sessao(extra_sessao)
     ss.cache = CacheChips(projeto.pasta_chips)
     ss.mapa, ss.avisos_teclas = lg.mapa_de_atalhos(projeto)
     ss.filtro = next(iter(ss.filtros))
@@ -109,7 +129,7 @@ def _iniciar(projeto, pontos, interprete: str, passada: str = "primeira", fracao
     ss.focar = None  # {"id", "rotulo"}: o componente de teclado rola até o campo e o foca
     ss.n_focar = 0
     ss.aviso = None
-    if passada == "consenso":
+    if passada in ("consenso", "dirigida"):
         ordem = _ordem(projeto, pontos)
         ss.atual = ordem[0] if ordem else None
     else:
@@ -127,6 +147,9 @@ def _ordem(projeto, pontos) -> list[str]:
     if ss.passada == "consenso":
         feitos = [pid for pid, r in ss.arm.todas().items() if r.meta.get("consenso") is not None]
         return lg.ordem_consenso(ss.ids, _valores_por_id(ss.arm), _valores_por_id(ss.arm_segunda), feitos, ss.filtro, _campo_classe(projeto) or "")
+    if ss.passada == "dirigida":
+        metas = {pid: r.meta for pid, r in ss.arm.todas().items()}
+        return lg.ordem_dirigida(ss.ids, metas, ss.filtro, ss.lista.sha256)
     return lg.ordem_visivel(ss.ids, _valores_por_id(), ss.filtro, projeto.condicao_revisao())
 
 
@@ -147,11 +170,23 @@ def _ir_para(pid: str | None) -> None:
 
 def _navegar(projeto, pontos, passo: int) -> None:
     ss = st.session_state
-    prox = lg.vizinho(_ordem(projeto, pontos), pontos.ids, ss.atual, passo)
+    prox = lg.vizinho(_ordem(projeto, pontos), ss.ids, ss.atual, passo)
     if prox is None:
         ss.aviso = "Fim da lista neste modo." if passo > 0 else "Início da lista."
     else:
         _ir_para(prox)
+
+
+def _saltar(projeto, pontos) -> None:
+    """Campo "Ir para o ponto": abre o PLOTID digitado, em qualquer modo."""
+    ss = st.session_state
+    entrada = ss.get("salto_widget", "")
+    pid, aviso = lg.saltar_para(entrada, ss.ids, _ordem(projeto, pontos))
+    if aviso:
+        ss.aviso = aviso
+    if pid is not None:
+        _ir_para(pid)
+    ss.salto_widget = ""
 
 
 def _mudar_filtro(projeto, pontos) -> None:
@@ -186,6 +221,11 @@ def _confirmar(projeto, pontos) -> None:
         meta["passada"] = 2
         if pid in ss.controle:
             meta["controle"] = True
+    elif ss.passada == "dirigida":
+        # Edições e confirmações sem mudança contam como revisão (revisoes+1 no núcleo).
+        meta["modo"] = lg.MODO_DIRIGIDA
+        meta["filtro"] = ss.filtro
+        meta["lista"] = ss.lista.carimbo()
     elif ss.passada == "consenso":
         r1, r2 = ss.arm.obter(pid), ss.arm_segunda.obter(pid)
         meta["consenso"] = {
@@ -198,7 +238,7 @@ def _confirmar(projeto, pontos) -> None:
     ss.cron.zerar(pid)
     ss.erros = []
     ordem = _ordem(projeto, pontos)
-    prox = lg.vizinho(ordem, pontos.ids, pid, +1)
+    prox = lg.vizinho(ordem, ss.ids, pid, +1)
     if prox is not None:
         _ir_para(prox)
     elif pid in ordem:
@@ -319,12 +359,16 @@ def _render_sidebar(projeto, pontos, interprete: str) -> None:
         st.markdown(f"**MIRADOURO** · {projeto.nome}")
         st.caption(f"Intérprete **{interprete}** · sessão {ss.arm.sessao_id} · ano de referência {projeto.ano_referencia}")
         if ss.passada == "segunda":
-            st.warning(f"**Segunda passada (cega)** · {len(ss.ids)} pontos, {len(ss.controle)} de controle. As respostas da primeira passada não são mostradas.")
+            sorteio = f" Amostra sorteada em {str(ss.amostra.get('gerado_em', ''))[:10]}." if ss.amostra else ""
+            st.warning(f"**Segunda passada (cega)** · {len(ss.ids)} pontos, {len(ss.controle)} de controle. As respostas da primeira passada não são mostradas.{sorteio}")
+        elif ss.passada == "dirigida":
+            st.warning(f"**Revisão dirigida** · {len(ss.ids)} pontos da lista `{ss.lista.nome}` (sha256 {ss.lista.sha256[:12]}). Cada confirmação conta como revisão.")
         elif ss.passada == "consenso":
             st.warning("**Consenso** · a decisão final vai para o arquivo principal, guardando as duas passadas na auditoria.")
 
         ss.filtro_widget = ss.filtro
         st.radio("Modo", list(ss.filtros), key="filtro_widget", format_func=ss.filtros.get, horizontal=True, on_change=_mudar_filtro, args=(projeto, pontos))
+        st.text_input(ROTULO_SALTO, key="salto_widget", placeholder="PLOTID + Enter", on_change=_saltar, args=(projeto, pontos))
 
         ids = set(ss.ids)
         feitos = len(ss.arm.respondidos() & ids)
@@ -405,7 +449,8 @@ def _render_principal(projeto, pontos) -> None:
             col.markdown(f"**{titulo}** ({r.interprete}, {r.atualizado_em[:16].replace('T', ' ')}){estado}\n{resumo}")
     elif resposta is not None:
         resumo = " · ".join(f"{k} = {lg.formatar_valor(v)}" for k, v in resposta.valores.items())
-        st.success(f"Já respondido ({resposta.interprete}, {resposta.atualizado_em[:16].replace('T', ' ')}): {resumo}")
+        revisto = " · **já revisto nesta lista**" if ss.passada == "dirigida" and lg.revisto_na_lista(resposta.meta, ss.lista.sha256) else ""
+        st.success(f"Já respondido ({resposta.interprete}, {resposta.atualizado_em[:16].replace('T', ' ')}): {resumo}{revisto}")
 
     provedores = projeto.provedores_habilitados()
     chips = lg.chips_do_ponto(ss.cache, provedores, pid)
@@ -443,7 +488,7 @@ def _pedir_interprete(sugestao: str) -> None:
 
 
 def main() -> None:
-    caminho, interprete_cli, passada, fracao = configuracao()
+    caminho, interprete_cli, passada, fracao, caminho_lista = configuracao()
     if not caminho:
         st.set_page_config(page_title="MIRADOURO")
         st.error(f"Informe o projeto: `python -m miradouro app projeto.yaml` (ou variável {VAR_PROJETO}).")
@@ -465,11 +510,23 @@ def main() -> None:
         st.error(f"Modo consenso exige a segunda passada em {projeto.pasta_saida / lg.PASTA_SEGUNDA}.")
         st.stop()
         return
-    _iniciar(projeto, pontos, interprete, passada, fracao)
+    lista = None
+    if passada == "dirigida":
+        try:
+            lista = lg.carregar_lista_plotids(caminho_lista or "", pontos.ids)
+        except ErroMiradouro as e:
+            st.error(str(e))
+            st.stop()
+            return
+        if lista.desconhecidos:
+            st.error(f"Lista {lista.nome}: PLOTID(s) que não existem no projeto: {', '.join(lista.desconhecidos)}. Corrija o arquivo.")
+            st.stop()
+            return
+    _iniciar(projeto, pontos, interprete, passada, fracao, lista)
 
     rotulos_texto = [_rotulo_widget(c) for c in projeto.campos if c.tipo in ("texto", "numero")]
     focar_antes = st.session_state.focar
-    evento = capturar_tecla(rotulos_texto=rotulos_texto, focar=focar_antes)
+    evento = capturar_tecla(rotulos_texto=rotulos_texto, focar=focar_antes, rotulos_sem_confirmar=[ROTULO_SALTO])
     _processar_evento(projeto, pontos, evento)
     if st.session_state.focar != focar_antes:
         # O componente já foi renderizado com o foco antigo: reexecuta uma vez para
