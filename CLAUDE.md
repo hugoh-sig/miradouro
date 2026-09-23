@@ -24,3 +24,7 @@ de aprovação prévia, desde que não alterem o `campos` de nenhum projeto.
 
 Decisões já tomadas (2026-09-14): `fonte_principal` como `multiopcao` {hr, serie,
 sazonal} e o campo `ano_confirmado_ndvi` no Paraopeba estão **aceitos**; não reverter.
+
+## Pendências de desenvolvimento
+Funcionalidades futuras ficam em `ROADMAP.md` (fase 2: salto por PLOTID, revisão
+dirigida por lista externa, comando de backup). Registrar lá antes de implementar.
