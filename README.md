@@ -173,6 +173,16 @@ faltou chip, `sem_subsidio` com os provedores ausentes. Um ponto sem chip mostra
 pode ser pulado (`→`) ou respondido mesmo assim. Quando a lista do modo se esvazia (último
 pendente ou última revisão gravada), a interface descarrega o ponto e avisa.
 
+**Conclusão e encerramento.** Quando o universo da sessão se completa (todos os pontos
+na interpretação; os sorteados na segunda passada; a lista na revisão dirigida; as
+divergências no consenso), a área principal mostra **Sessão concluída**: quantos pontos
+foram revisados, quantos nesta sessão (com revisões e tempo) e a distribuição da classe,
+seguidos das **próximas etapas do protocolo** (ver "Fluxo guiado" abaixo). Ainda dá para
+rever pontos trocando o modo ou com *Ir para o ponto*. O botão **Encerrar app** (na
+conclusão e no rodapé da barra lateral) encerra o servidor graciosamente, como um Ctrl+C,
+e libera a porta; as respostas já estão gravadas a cada `Enter`. Se a porta pedida (`--porta`,
+padrão 8501) estiver ocupada, a CLI usa a próxima livre e informa a URL.
+
 **Cegueira.** As `colunas_ocultas` nunca chegam ao navegador: nem na tela, nem em
 tooltip, título ou URL. Há teste automatizado disso (`tests/test_app.py`) que varre tudo o
 que o front-end receberia, e um teste ponta a ponta opcional em Chrome real
@@ -229,6 +239,22 @@ cada confirmação grava no arquivo principal com `meta.modo = dirigida`, `meta.
 `meta.lista`, e conta como revisão (`revisoes + 1`) mesmo sem mudança de valor — é isso que
 torna auditável um "todos mantidos". O relatório de sessão lista as revisões dirigidas por
 sessão, com o arquivo, o hash e quantos pontos foram gravados.
+
+## Fluxo guiado (embrião)
+
+Na tela de conclusão o app diagnostica o protocolo do projeto e lista cada etapa com a
+situação e o comando pronto para copiar. **Nada é executado**; é só diagnóstico:
+
+| etapa | situação | comando sugerido |
+|---|---|---|
+| Interpretação | pendentes / concluída | `app … --interprete X` |
+| Revisão por confiança | pontos cuja confiança não é a primeira opção do campo de `interface.revisao` (ex.: média e baixa); gera `listas/revisao_confianca.csv` ao lado do `projeto.yaml`, só com PLOTIDs, e considera concluída quando todos foram revistos com essa lista | `app … --lista listas/revisao_confianca.csv` |
+| Segunda passada cega | não sorteada / sorteada e não iniciada / em andamento / concluída | `sortear …` ou `app … --segunda-passada` |
+| Consenso | divergências sem consenso | `app … --consenso` |
+| Relatório e exportação | sempre disponível | `relatorio …`, `exportar csv …` |
+
+A mesma lógica está em `miradouro.fluxo.diagnosticar()` (sem Streamlit). A sequência
+completa e configurável de passadas fica para o orquestrador de protocolo (`ROADMAP.md`).
 
 ## Exportando
 

@@ -195,3 +195,22 @@ def test_sortear_persiste_amostra(yaml_cli, capsys):
     (arquivo.parent / "respostas.json").write_text("{}")
     assert main(["sortear", y, "--fracao-controle", "0.5", "--forcar"]) == CODIGO_ERRO
     assert "já começou" in capsys.readouterr().err
+
+
+def test_app_comando_porta_ocupada_usa_a_proxima(yaml_cli, monkeypatch, capsys):
+    pytest.importorskip("streamlit")
+    import socket
+    import subprocess
+
+    chamadas = []
+    monkeypatch.setattr(subprocess, "call", lambda cmd: chamadas.append(cmd) or 0)
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        s.listen(8)
+        ocupada = s.getsockname()[1]
+        assert main(["app", str(yaml_cli), "--interprete", "ana", "--porta", str(ocupada), "--sem-navegador"]) == CODIGO_OK
+    cmd = chamadas[-1]
+    porta = int(cmd[cmd.index("--server.port") + 1])
+    assert porta > ocupada
+    err = capsys.readouterr().err
+    assert f"Porta {ocupada} ocupada" in err and f"http://localhost:{porta}" in err

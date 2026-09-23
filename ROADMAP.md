@@ -38,6 +38,19 @@ Requisitos mínimos a decidir na implementação: o modo grava com `modo` própr
 hash entram no relatório de sessão; edições nesse modo contam como `revisoes`, nunca
 sobrescrevem silenciosamente. A lista não é interpretada nem filtrada pelo app.
 
+### 2.4 Orquestrador de protocolo — PENDENTE
+Sequência completa de passadas configurável no `projeto.yaml`: interpretação → revisões
+dirigidas por critérios declarados → segunda passada → consenso → exportação. O app
+conduz cada etapa (abre a próxima ao concluir a anterior) e gera as listas por critério
+internamente, **sem exibi-los** ao intérprete. Desenho de cegueira a especificar: quem
+declara o critério (o dono do protocolo, no yaml), o que o intérprete vê (só PLOTIDs e o
+nome da etapa), o que fica gravado (critério e hash da lista na sessão, para auditoria
+posterior, não durante a interpretação). Ponto de partida: a tela de conclusão de hoje
+(`miradouro.fluxo.diagnosticar`, README "Fluxo guiado (embrião)"), que só diagnostica e
+sugere comandos; o orquestrador passa a executá-los. Origem: fluxo real do caso Paraopeba,
+set/2026 (interpretação em 13–15/09, releituras dirigidas e sorteio em 23/09, auto-passada
+cega e consenso previstos para 29/09–05/10). Registrado em 23/09/2026.
+
 ### 2.3 Comando de backup embutido — PENDENTE
 `miradouro backup <projeto.yaml> --destino <pasta>`: cópia íntegra e datada de
 `respostas.json` (e, opcionalmente, da pasta `respostas/`) para um destino escolhido

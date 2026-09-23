@@ -388,3 +388,37 @@ def test_sortear_gravar_e_carregar_amostra_segunda(paraopeba, tmp_path):
     destino.write_text("{}")
     with pytest.raises(ErroMiradouro):
         lg.carregar_amostra_segunda(tmp_path)
+
+
+# ---- conclusão do universo ---------------------------------------------------------------
+
+
+class _R:
+    def __init__(self, valores, meta=None, sessao_id="s1", revisoes=0):
+        self.valores, self.meta, self.sessao_id, self.revisoes = valores, meta or {}, sessao_id, revisoes
+
+
+def test_progresso_universo():
+    ids = ["1", "2", "3"]
+    resp = {"1": _R({"classe_ref": "1"}), "2": _R({"classe_ref": "2"})}
+    assert lg.progresso_universo("primeira", ids, resp) == (2, 3)
+    assert lg.progresso_universo("segunda", ["1", "2"], resp) == (2, 2)
+    carimbo = {"modo": "dirigida", "lista": {"sha256": "abc"}}
+    resp_d = {"1": _R({}, carimbo), "2": _R({}, {"modo": "dirigida", "lista": {"sha256": "x"}}), "3": _R({})}
+    assert lg.progresso_universo("dirigida", ids, resp_d, sha256="abc") == (1, 3)
+    segunda = {"1": _R({"classe_ref": "1"}), "2": _R({"classe_ref": "6"}), "3": _R({"classe_ref": "6"})}
+    prim = {"1": _R({"classe_ref": "1"}), "2": _R({"classe_ref": "2"}, {"consenso": {}}), "3": _R({"classe_ref": "1"})}
+    assert lg.progresso_universo("consenso", ids, prim, segunda=segunda, campo_classe="classe_ref") == (1, 2)
+    assert lg.progresso_universo("consenso", ids, prim, segunda={}, campo_classe="classe_ref") == (0, 0)  # nada a fazer = concluído
+
+
+def test_resumo_conclusao():
+    resp = {
+        "1": _R({"classe_ref": "1"}, {"duracao_s": 10}, "s1"),
+        "2": _R({"classe_ref": "1"}, {"duracao_s": 5.5}, "s1", revisoes=1),
+        "3": _R({"classe_ref": "2"}, {"duracao_s": 99}, "s0"),
+    }
+    r = lg.resumo_conclusao(["1", "2", "3", "4"], resp, "s1", "classe_ref", lambda v: {"1": "floresta", "2": "pasto"}[v])
+    assert (r["total"], r["respondidos"], r["nesta_sessao"], r["revisoes_nesta_sessao"], r["tempo_s"]) == (4, 3, 2, 1, 15.5)
+    assert r["distribuicao"] == {"1 floresta": 2, "2 pasto": 1}
+    assert lg.resumo_conclusao([], {}, None, None)["distribuicao"] == {}

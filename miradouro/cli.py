@@ -9,6 +9,8 @@ Comandos do Sprint 1:
 * ``app <projeto.yaml> [--interprete id]`` — interface de interpretação (Streamlit);
   ``--lista arquivo`` abre a revisão dirigida por lista externa de PLOTIDs.
 * ``sortear <projeto.yaml> --fracao-controle F`` — sorteia e persiste a amostra da segunda passada.
+
+Se a porta pedida em ``app`` estiver ocupada, a próxima livre é usada e a URL informada.
 * ``exportar acatama <projeto.yaml> --mapa raster.tif`` — yml + GeoJSON + CSV para o AcATaMa.
 * ``exportar csv <projeto.yaml>`` — tabela plana de referência (versionável).
 * ``relatorio <projeto.yaml>`` — relatório de sessão em Markdown + JSON.
@@ -349,11 +351,15 @@ def cmd_app(args: argparse.Namespace) -> int:
     projeto = carregar_projeto(args.projeto)
     pontos = carregar_pontos(projeto.caminho_pontos)  # falha cedo se o CSV estiver quebrado
     import miradouro.interface
+    from miradouro.interface.servidor import escolher_porta
 
+    porta, mudou = escolher_porta(args.porta)
+    if mudou:
+        print(f"Porta {args.porta} ocupada; usando a próxima livre: {porta}.", file=sys.stderr)
     caminho_app = Path(miradouro.interface.__file__).parent / "app.py"
     comando = [
         sys.executable, "-m", "streamlit", "run", str(caminho_app),
-        "--server.port", str(args.porta),
+        "--server.port", str(porta),
         "--browser.gatherUsageStats", "false",
         "--server.headless", "true" if args.sem_navegador else "false",
         "--", "--projeto", str(projeto.caminho_yaml),
@@ -379,7 +385,7 @@ def cmd_app(args: argparse.Namespace) -> int:
         print(f"Revisão dirigida: {len(lista.ids)} pontos de {lista.nome} (sha256 {lista.sha256[:12]}"
               f"{f', {lista.repetidos} repetidos ignorados' if lista.repetidos else ''})", file=sys.stderr)
         comando += ["--passada", "dirigida", "--lista", str(lista.caminho)]
-    print(f"Abrindo a interface para {projeto.nome} em http://localhost:{args.porta}", file=sys.stderr)
+    print(f"Abrindo a interface para {projeto.nome} em http://localhost:{porta}", file=sys.stderr)
     return subprocess.call(comando)
 
 

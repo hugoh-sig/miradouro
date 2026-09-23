@@ -17,6 +17,7 @@ htmlcov/
 # Saídas geradas pelo MIRADOURO (chips, respostas, backups, logs)
 exemplos/*/chips/
 exemplos/*/respostas/
+exemplos/*/listas/
 chips/
 respostas/
 *.log

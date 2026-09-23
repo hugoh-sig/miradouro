@@ -525,7 +525,8 @@ def test_revisao_dirigida(projeto_app, monkeypatch):
     _botao(at, "Confirmar").click().run()
     r = _respostas(projeto_app)["p1"]
     assert r["valores"]["confianca"] == "alta" and r["revisoes"] == 1 and r["meta"]["modo"] == "dirigida"
-    assert not at.subheader and any("Não há mais pontos neste modo" in i.value for i in at.info)
+    assert not at.subheader and any("Sessão concluída" in i.value for i in at.info)
+    assert "Universo desta sessão (revisão dirigida (lista.csv)): 2/2" in _todo_texto(at)
     _radio(at, "Modo").set_value("todos").run()
     assert at.subheader[0].value.startswith("PLOTID p3 · ponto 1 de 2") and "já revisto nesta lista" in _todo_texto(at)
     # p2 não está na lista: o salto recusa.
@@ -538,7 +539,8 @@ def test_revisao_dirigida(projeto_app, monkeypatch):
     assert "MOTIVO_SECRETO" not in json.dumps(dados)
     # Reabrir com a mesma lista: nada pendente (já revistos com este hash).
     at2 = _app()
-    assert not at2.subheader and any("Nenhum ponto neste modo" in s.value for s in at2.success)
+    assert not at2.subheader and any("Sessão concluída" in s.value for s in at2.success)
+    assert "MOTIVO_SECRETO" not in _todo_texto(at2)
 
 
 def test_revisao_dirigida_recusa_plotid_desconhecido(projeto_app, monkeypatch):
@@ -549,3 +551,66 @@ def test_revisao_dirigida_recusa_plotid_desconhecido(projeto_app, monkeypatch):
     at = AppTest.from_file(modulo_app.__file__, default_timeout=60)
     at.run()
     assert at.error and "p9" in at.error[0].value and not at.radio
+
+
+# ---- conclusão, fluxo guiado (embrião) e encerramento --------------------------------------
+
+
+def _responder_tudo(at: AppTest) -> None:
+    for classe in ("1", "2", "6"):
+        _radio(at, "classe_ref").set_value(classe).run()
+        _radio(at, "confianca").set_value("media" if classe == "2" else "alta").run()
+        if classe == "2":
+            _radio(at, "classe_alt").set_value("1").run()
+        _botao(at, "Confirmar").click().run()
+
+
+def test_tela_de_conclusao_e_proximas_etapas(projeto_app, monkeypatch):
+    from miradouro.interface import servidor
+
+    chamadas: list[str] = []
+    monkeypatch.setattr(servidor, "desligar_servidor", lambda: chamadas.append("stop") or True)
+    at = _app()
+    _responder_tudo(at)
+    texto = _todo_texto(at)
+    assert not at.subheader and any("Sessão concluída" in i.value for i in at.info)
+    assert "Universo desta sessão (interpretação): 3/3 pontos revisados" in texto
+    assert "**3** respondidos de 3" in texto and "**3** gravados nesta sessão (0 revisões)" in texto
+    assert "1 floresta = 1" in texto and "6 Água = 1" in texto
+    assert SENTINELA_VALOR not in texto and SENTINELA_COLUNA not in texto
+    # Etapas do protocolo com comandos copiáveis (st.code), sem executar nada.
+    assert "Interpretação** — 3/3 respondidos" in texto
+    assert "Revisão por confiança** — 1 ponto(s) com confianca em" in texto and "1 ainda não revisto(s) com ela" in texto
+    codigos = [c.value for c in at.code]
+    assert any("--lista" in c and c.endswith("revisao_confianca.csv") for c in codigos)
+    assert any("sortear" in c and "--fracao-controle 0.10" in c for c in codigos)
+    assert any("relatorio" in c and "exportar csv" in c for c in codigos)
+    assert not any("--consenso" in c for c in codigos)  # consenso não aplicável ainda
+    lista = projeto_app.parent / "listas" / "revisao_confianca.csv"
+    assert lista.read_text(encoding="utf-8") == "PLOTID\np2\n"
+    # Da conclusão dá para reabrir um ponto; reabrir o app cai direto na conclusão.
+    _saltar(at, "p2")
+    assert at.subheader[0].value.startswith("PLOTID p2") and any("fora da lista" in i.value for i in at.info)
+    at2 = _app()
+    assert not at2.subheader and "Sessão concluída" in _todo_texto(at2)
+    # Encerrar: mensagem final e pedido de parada ao runtime.
+    _botao(at2, "Encerrar app").click().run()
+    assert chamadas == ["stop"] and any("App encerrado" in s.value for s in at2.success)
+    assert not at2.radio and not at2.button
+
+
+def test_conclusao_na_segunda_passada_nao_mostra_a_primeira(projeto_app, monkeypatch):
+    _primeira_passada(projeto_app)
+    monkeypatch.setenv(modulo_app.VAR_PASSADA, "segunda")
+    monkeypatch.setenv(modulo_app.VAR_FRACAO, "0.5")
+    monkeypatch.setenv(modulo_app.VAR_INTERPRETE, "bia")
+    at = _app()
+    for _ in range(2):
+        _radio(at, "classe_ref").set_value("2").run()
+        _radio(at, "confianca").set_value("alta").run()
+        _botao(at, "Confirmar").click().run()
+    texto = _todo_texto(at)
+    assert "Universo desta sessão (segunda passada cega): 2/2" in texto
+    assert "Já respondido" not in texto and "classe_ref = 1" not in texto and SENTINELA_VALOR not in texto
+    assert "Segunda passada cega** — 2/2" in texto and "Consenso** — 1 divergências" in texto
+    assert any("--consenso" in c.value for c in at.code)

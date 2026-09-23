@@ -678,3 +678,57 @@ def carregar_amostra_segunda(pasta_segunda: str | Path) -> dict[str, Any] | None
     if not isinstance(dados, dict) or "baixa" not in dados or "controle" not in dados:
         raise ErroMiradouro(f"{arquivo} não tem o formato de amostra da segunda passada")
     return dados
+
+
+# ---- conclusão do universo da sessão --------------------------------------------------------
+
+
+def progresso_universo(
+    passada: str,
+    ids: list[str],
+    respostas: Mapping[str, Any],
+    *,
+    sha256: str | None = None,
+    segunda: Mapping[str, Any] | None = None,
+    campo_classe: str | None = None,
+) -> tuple[int, int]:
+    """``(feitos, total)`` do universo da sessão; concluído quando ``feitos == total``.
+
+    ``respostas`` são objetos com ``valores`` e ``meta`` (ex.: :class:`Resposta`) do
+    armazenamento em que a passada grava; ``segunda`` idem, só no consenso.
+    """
+    if passada == "dirigida":
+        return sum(1 for i in ids if i in respostas and revisto_na_lista(respostas[i].meta, sha256 or "")), len(ids)
+    if passada == "consenso":
+        div = divergencias({p: r.valores for p, r in respostas.items()}, {p: r.valores for p, r in (segunda or {}).items()}, campo_classe or "")
+        div = [d for d in ids if d in set(div)]
+        return sum(1 for d in div if respostas[d].meta.get("consenso") is not None), len(div)
+    return sum(1 for i in ids if i in respostas), len(ids)
+
+
+def resumo_conclusao(
+    ids: list[str],
+    respostas: Mapping[str, Any],
+    sessao_id: str | None,
+    campo_classe: str | None,
+    rotulo_classe: Any = None,
+) -> dict[str, Any]:
+    """Números da tela de conclusão: universo, respondidos, nesta sessão, revisões, tempo e distribuição."""
+    universo = [respostas[i] for i in ids if i in respostas]
+    nesta = [r for r in universo if sessao_id and r.sessao_id == sessao_id]
+    dist: dict[str, int] = {}
+    if campo_classe:
+        for r in universo:
+            v = r.valores.get(campo_classe)
+            if v is None:
+                continue
+            chave = f"{v} {rotulo_classe(v)}" if rotulo_classe else str(v)
+            dist[chave] = dist.get(chave, 0) + 1
+    return {
+        "total": len(ids),
+        "respondidos": len(universo),
+        "nesta_sessao": len(nesta),
+        "revisoes_nesta_sessao": sum(1 for r in nesta if r.revisoes > 0),
+        "tempo_s": round(sum(float(r.meta.get("duracao_s") or 0) for r in nesta), 1),
+        "distribuicao": dict(sorted(dist.items(), key=lambda kv: (-kv[1], kv[0]))),
+    }

@@ -18,7 +18,7 @@ from pathlib import Path
 
 import streamlit as st
 
-from miradouro import __version__
+from miradouro import __version__, fluxo
 from miradouro.chips.cache import CacheChips
 from miradouro.core import (
     Armazenamento,
@@ -28,6 +28,7 @@ from miradouro.core import (
     validar_resposta,
 )
 from miradouro.interface import logica as lg
+from miradouro.interface import servidor
 from miradouro.interface.teclado import capturar_tecla
 
 VAR_PROJETO = "MIRADOURO_PROJETO"
@@ -153,6 +154,28 @@ def _ordem(projeto, pontos) -> list[str]:
     return lg.ordem_visivel(ss.ids, _valores_por_id(), ss.filtro, projeto.condicao_revisao())
 
 
+def _universo(projeto) -> tuple[int, int]:
+    """(feitos, total) do universo desta sessão: todos os pontos, os sorteados, a lista ou as divergências."""
+    ss = st.session_state
+    lista = ss.get("lista")
+    arm_segunda = ss.get("arm_segunda")
+    return lg.progresso_universo(
+        ss.passada, ss.ids, ss.arm.todas(),
+        sha256=lista.sha256 if lista else None,
+        segunda=arm_segunda.todas() if arm_segunda else None,
+        campo_classe=_campo_classe(projeto),
+    )
+
+
+def _concluido(projeto) -> bool:
+    feitos, total = _universo(projeto)
+    return feitos == total
+
+
+def _encerrar() -> None:
+    st.session_state.encerrando = True
+
+
 def _rascunho(pid: str) -> dict:
     ss = st.session_state
     if pid not in ss.rascunhos:
@@ -237,6 +260,10 @@ def _confirmar(projeto, pontos) -> None:
     ss.rascunhos[pid] = dict(valores)
     ss.cron.zerar(pid)
     ss.erros = []
+    if _concluido(projeto):
+        ss.aviso = "Sessão concluída: todos os pontos deste universo foram revisados."
+        _ir_para(None)
+        return
     ordem = _ordem(projeto, pontos)
     prox = lg.vizinho(ordem, ss.ids, pid, +1)
     if prox is not None:
@@ -378,7 +405,10 @@ def _render_sidebar(projeto, pontos, interprete: str) -> None:
         st.divider()
         pid = ss.atual
         if pid is None:
-            st.success("Nenhum ponto neste modo. Troque o modo ou encerre a sessão.")
+            if _concluido(projeto):
+                st.success("Sessão concluída. Resumo e próximas etapas ao lado.")
+            else:
+                st.success("Nenhum ponto neste modo. Troque o modo ou encerre a sessão.")
         else:
             if ss.erros:
                 st.error("\n".join(f"- {e}" for e in ss.erros))
@@ -403,6 +433,7 @@ def _render_sidebar(projeto, pontos, interprete: str) -> None:
         st.caption("Classe alternativa: ⇧ + tecla da classe.")
         for aviso in ss.avisos_teclas:
             st.warning(aviso)
+        st.button("Encerrar app", on_click=_encerrar, key="encerrar_sidebar", help="Encerra o servidor e libera a porta; as respostas já estão gravadas.")
         st.caption(f"miradouro {__version__}")
 
 
@@ -416,8 +447,11 @@ def _render_principal(projeto, pontos) -> None:
         ss.aviso = None
     pid = ss.atual
     if pid is None:
-        st.title("MIRADOURO")
-        st.write("Nenhum ponto selecionado neste modo.")
+        if _concluido(projeto):
+            _render_conclusao(projeto, pontos)
+        else:
+            st.title("MIRADOURO")
+            st.write("Nenhum ponto selecionado neste modo.")
         return
     ponto = pontos.obter(pid)
     ordem = _ordem(projeto, pontos)
@@ -474,6 +508,48 @@ def _render_principal(projeto, pontos) -> None:
         st.image(str(caminho), width="stretch")
 
 
+# ---- tela de conclusão ---------------------------------------------------------------
+
+_NOME_PASSADA = {"primeira": "interpretação", "segunda": "segunda passada cega", "consenso": "consenso", "dirigida": "revisão dirigida"}
+_ICONES = {"pendente": "⏳", "em_andamento": "🔄", "concluida": "✅", "nao_aplicavel": "➖", "disponivel": "📄"}
+
+
+def _render_conclusao(projeto, pontos) -> None:
+    """Universo da sessão completo: resumo mínimo, etapas pendentes do protocolo e encerramento."""
+    ss = st.session_state
+    feitos, total = _universo(projeto)
+    nome = _NOME_PASSADA.get(ss.passada, ss.passada)
+    if ss.passada == "dirigida" and ss.get("lista"):
+        nome += f" ({ss.lista.nome})"
+    st.title("Sessão concluída ✓")
+    st.success(f"Universo desta sessão ({nome}): {feitos}/{total} pontos revisados.")
+    campo = _campo_classe(projeto)
+    r = lg.resumo_conclusao(ss.ids, ss.arm.todas(), ss.arm.sessao_id, campo, lambda v: (projeto.classe(v).rotulo if projeto.classe(v) else ""))
+    st.markdown(
+        f"- **{r['respondidos']}** respondidos de {r['total']} no universo\n"
+        f"- **{r['nesta_sessao']}** gravados nesta sessão ({r['revisoes_nesta_sessao']} revisões) · "
+        f"{lg.formatar_duracao(r['tempo_s'])} interpretando"
+    )
+    if r["distribuicao"]:
+        st.markdown(f"- {campo}: " + " · ".join(f"{k} = {v}" for k, v in r["distribuicao"].items()))
+    st.caption("Para rever um ponto, troque o modo ou use “Ir para o ponto”. As respostas já estão gravadas.")
+
+    st.divider()
+    st.markdown("### Próximas etapas do protocolo")
+    principal = ss.arm if ss.passada != "segunda" else Armazenamento(projeto, interprete=ss.arm.interprete)
+    try:
+        etapas = fluxo.diagnosticar(projeto, pontos, principal, interprete=ss.arm.interprete, python=f"{sys.executable} -m miradouro")
+    except ErroMiradouro as e:
+        st.warning(f"Não foi possível diagnosticar o protocolo: {e}")
+        etapas = []
+    for etapa in etapas:
+        st.markdown(f"{_ICONES.get(etapa.situacao, '•')} **{etapa.titulo}** — {etapa.detalhe}")
+        if etapa.comando and etapa.situacao != "concluida":
+            st.code(etapa.comando, language="bash")
+    st.caption("Diagnóstico apenas: nada foi executado. Copie o comando da etapa e rode no terminal depois de encerrar este app.")
+    st.button("Encerrar app", type="primary", on_click=_encerrar, key="encerrar_conclusao")
+
+
 # ---- entrada -------------------------------------------------------------------------
 
 
@@ -523,6 +599,12 @@ def main() -> None:
             st.stop()
             return
     _iniciar(projeto, pontos, interprete, passada, fracao, lista)
+    if st.session_state.get("encerrando"):
+        st.title("MIRADOURO")
+        st.success("App encerrado. As respostas estão gravadas; pode fechar esta aba.")
+        servidor.desligar_servidor()
+        st.stop()
+        return
 
     rotulos_texto = [_rotulo_widget(c) for c in projeto.campos if c.tipo in ("texto", "numero")]
     focar_antes = st.session_state.focar
