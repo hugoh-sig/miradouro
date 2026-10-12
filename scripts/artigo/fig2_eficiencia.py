@@ -9,6 +9,7 @@ Figura para coluna simples (≈ 70 mm), fontes ≥ 7,5 pt no tamanho final, pret
 from pathlib import Path
 
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
@@ -23,13 +24,16 @@ plt.rcParams.update({"font.family": "DejaVu Sans", "font.size": 7.5})
 fig, ax = plt.subplots(figsize=(LARG_MM / 25.4, 38 / 25.4), dpi=300)
 x = list(range(len(SESSOES)))
 ax.bar(x, MEDIANA_S, width=0.62, color="#9a9a9a", edgecolor="#222222", linewidth=0.6, zorder=2)
-for xi, m in zip(x, MEDIANA_S):
+for xi, m in zip(x, MEDIANA_S, strict=True):
     ax.text(xi, m + 0.6, f"{m:.1f} s".replace(".", ","), ha="center", va="bottom", fontsize=7.5)
-rotulos = [f"{s}\nn = {n}\n{p:.0f} pt/h" for s, n, p in zip(SESSOES, RESPOSTAS, PONTOS_H)]
+rotulos = [f"{s}\nn = {n}\n{p:.0f} pt/h" for s, n, p in zip(SESSOES, RESPOSTAS, PONTOS_H, strict=True)]
 ax.set_ylabel("mediana por ponto (s)", fontsize=7.5)
-ax.set_xticks(x); ax.set_xticklabels(rotulos, fontsize=7)
-ax.set_ylim(0, 30); ax.set_yticks([0, 10, 20, 30])
-ax.yaxis.grid(True, color="#dddddd", linewidth=0.5, zorder=0); ax.set_axisbelow(True)
+ax.set_xticks(x)
+ax.set_xticklabels(rotulos, fontsize=7)
+ax.set_ylim(0, 30)
+ax.set_yticks([0, 10, 20, 30])
+ax.yaxis.grid(True, color="#dddddd", linewidth=0.5, zorder=0)
+ax.set_axisbelow(True)
 for lado in ("top", "right"):
     ax.spines[lado].set_visible(False)
 ax.tick_params(labelsize=7)

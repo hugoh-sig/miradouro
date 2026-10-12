@@ -36,7 +36,7 @@ from docx.enum.table import WD_TABLE_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_BREAK
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
-from docx.shared import Cm, Emu, Mm, Pt, Twips
+from docx.shared import Cm, Mm, Pt, Twips
 
 REPO = Path(__file__).resolve().parents[1]
 MD = REPO / "docs/artigo/texto.md"
@@ -66,13 +66,17 @@ def _runs(par, texto, tam=TAM_CORPO, italico_base=False, negrito_base=False):
         if not tok:
             continue
         if tok.startswith("***"):
-            r = par.add_run(tok[3:-3]); _fonte(r, tam, True, True)
+            r = par.add_run(tok[3:-3])
+            _fonte(r, tam, True, True)
         elif tok.startswith("**"):
-            r = par.add_run(tok[2:-2]); _fonte(r, tam, True, italico_base)
+            r = par.add_run(tok[2:-2])
+            _fonte(r, tam, True, italico_base)
         elif tok.startswith("*"):
-            r = par.add_run(tok[1:-1]); _fonte(r, tam, negrito_base, True)
+            r = par.add_run(tok[1:-1])
+            _fonte(r, tam, negrito_base, True)
         else:
-            r = par.add_run(tok); _fonte(r, tam, negrito_base, italico_base)
+            r = par.add_run(tok)
+            _fonte(r, tam, negrito_base, italico_base)
 
 
 def _paragrafo(doc, texto="", alinh=WD_ALIGN_PARAGRAPH.JUSTIFY, tam=TAM_CORPO, recuo=None,
@@ -93,12 +97,17 @@ def _paragrafo(doc, texto="", alinh=WD_ALIGN_PARAGRAPH.JUSTIFY, tam=TAM_CORPO, r
 def _sombrear(p, cor="FFF2CC", borda="BF9000"):
     pPr = p._p.get_or_add_pPr()
     shd = OxmlElement("w:shd")
-    shd.set(qn("w:val"), "clear"); shd.set(qn("w:color"), "auto"); shd.set(qn("w:fill"), cor)
+    shd.set(qn("w:val"), "clear")
+    shd.set(qn("w:color"), "auto")
+    shd.set(qn("w:fill"), cor)
     pPr.append(shd)
     bdr = OxmlElement("w:pBdr")
     for lado in ("top", "left", "bottom", "right"):
         el = OxmlElement(f"w:{lado}")
-        el.set(qn("w:val"), "single"); el.set(qn("w:sz"), "6"); el.set(qn("w:space"), "3"); el.set(qn("w:color"), borda)
+        el.set(qn("w:val"), "single")
+        el.set(qn("w:sz"), "6")
+        el.set(qn("w:space"), "3")
+        el.set(qn("w:color"), borda)
         bdr.append(el)
     pPr.append(bdr)
 
@@ -108,7 +117,9 @@ def _colunas(section, n, espaco_twips=346):
     for c in sectPr.findall(qn("w:cols")):
         sectPr.remove(c)
     cols = OxmlElement("w:cols")
-    cols.set(qn("w:num"), str(n)); cols.set(qn("w:space"), str(espaco_twips)); cols.set(qn("w:equalWidth"), "1")
+    cols.set(qn("w:num"), str(n))
+    cols.set(qn("w:space"), str(espaco_twips))
+    cols.set(qn("w:equalWidth"), "1")
     # w:cols deve vir antes de w:docGrid / w:titlePg na ordem do esquema; inserir após pgMar
     pgMar = sectPr.find(qn("w:pgMar"))
     pgMar.addnext(cols)
@@ -130,7 +141,10 @@ def _celula(cell, texto, tam=TAM_TABELA, negrito=False, alinh=WD_ALIGN_PARAGRAPH
     tcPr = cell._tc.get_or_add_tcPr()
     mar = OxmlElement("w:tcMar")
     for lado, v in (("top", 5), ("bottom", 5), ("left", 40), ("right", 40)):
-        el = OxmlElement(f"w:{lado}"); el.set(qn("w:w"), str(v)); el.set(qn("w:type"), "dxa"); mar.append(el)
+        el = OxmlElement(f"w:{lado}")
+        el.set(qn("w:w"), str(v))
+        el.set(qn("w:type"), "dxa")
+        mar.append(el)
     tcPr.append(mar)
 
 
@@ -138,7 +152,7 @@ def _tabela(doc, legenda, linhas):
     _paragrafo(doc, legenda, WD_ALIGN_PARAGRAPH.CENTER, TAM_LEGENDA, antes=(RESPIRO.pt if FINAL else 4), depois=2,
                negrito=True, keep_next=True)
     cab = [c.strip() for c in linhas[0].strip("|").split("|")]
-    corpo = [[c.strip() for c in l.strip("|").split("|")] for l in linhas[2:]]
+    corpo = [[c.strip() for c in ln.strip("|").split("|")] for ln in linhas[2:]]
     t = doc.add_table(rows=1 + len(corpo), cols=len(cab))
     t.style = "Table Grid"
     t.alignment = WD_TABLE_ALIGNMENT.CENTER
@@ -147,23 +161,27 @@ def _tabela(doc, legenda, linhas):
     # corpo (≈1,45 mm por caractere a 7,5 pt + margens; o cabeçalho pode quebrar linha), e a primeira
     # coluna (nomes) fica com o restante
     # ≈1,25 mm por caractere a 7 pt + 2,5 mm de margens, piso 8,5 mm: sobra para nomes longos na 1ª coluna
-    mm_num = [max(8.5, max(len(re.sub(r"\*", "", l[j])) for l in corpo) * 1.25 + 2.5) for j in range(1, len(cab))]
+    mm_num = [max(8.5, max(len(re.sub(r"\*", "", ln[j])) for ln in corpo) * 1.25 + 2.5) for j in range(1, len(cab))]
     primeira = max(14.0, LARGURA_COLUNA.mm - sum(mm_num))
     larguras = [Mm(primeira)] + [Mm(w) for w in mm_num]
     if sum(w.mm for w in larguras) > LARGURA_COLUNA.mm + 0.01:      # colunas de texto: redistribui e deixa quebrar linha
-        tot = sum(len(re.sub(r"\*", "", l[j])) for l in tudo for j in range(len(cab))) if (tudo := [cab] + corpo) else 1
-        peso = [max(8.0, sum(len(re.sub(r"\*", "", l[j])) for l in tudo) ** 0.7) for j in range(len(cab))]
+        tudo = [cab] + corpo
+        peso = [max(8.0, sum(len(re.sub(r"\*", "", ln[j])) for ln in tudo) ** 0.7) for j in range(len(cab))]
         larguras = [Mm(LARGURA_COLUNA.mm * w / sum(peso)) for w in peso]
     tblPr = t._tbl.tblPr
-    lay = OxmlElement("w:tblLayout"); lay.set(qn("w:type"), "fixed"); tblPr.append(lay)
+    lay = OxmlElement("w:tblLayout")
+    lay.set(qn("w:type"), "fixed")
+    tblPr.append(lay)
     # python-docx cria a grade com a largura da página inteira; a grade e a largura total precisam
     # refletir a coluna de texto, senão o LibreOffice/Word desenham a tabela larga demais
-    for gc, w in zip(t._tbl.tblGrid.findall(qn("w:gridCol")), larguras):
+    for gc, w in zip(t._tbl.tblGrid.findall(qn("w:gridCol")), larguras, strict=False):
         gc.set(qn("w:w"), str(int(w.twips)))
     tblW = tblPr.find(qn("w:tblW"))
     if tblW is None:
-        tblW = OxmlElement("w:tblW"); tblPr.append(tblW)
-    tblW.set(qn("w:type"), "dxa"); tblW.set(qn("w:w"), str(int(sum(w.twips for w in larguras))))
+        tblW = OxmlElement("w:tblW")
+        tblPr.append(tblW)
+    tblW.set(qn("w:type"), "dxa")
+    tblW.set(qn("w:w"), str(int(sum(w.twips for w in larguras))))
     for j, c in enumerate(cab):
         _celula(t.rows[0].cells[j], c, negrito=True)
     for i, linha in enumerate(corpo, start=1):
@@ -171,13 +189,15 @@ def _tabela(doc, legenda, linhas):
             _celula(t.rows[i].cells[j], c, alinh=WD_ALIGN_PARAGRAPH.LEFT if j == 0 else WD_ALIGN_PARAGRAPH.CENTER)
     for i, row in enumerate(t.rows):
         trPr = row._tr.get_or_add_trPr()
-        cs = OxmlElement("w:cantSplit"); trPr.append(cs)           # linha nunca quebra entre páginas/colunas
+        cs = OxmlElement("w:cantSplit")
+        trPr.append(cs)  # linha nunca quebra entre páginas/colunas
         for j, cell in enumerate(row.cells):
             cell.width = larguras[j]
             if i < len(t.rows) - 1:                                  # tabela inteira numa só coluna
                 cell.paragraphs[0].paragraph_format.keep_with_next = True
     if FINAL:                                       # respiro após a tabela igual ao das figuras: parágrafo de 1 pt + 6 pt
-        p = doc.add_paragraph(); pf = p.paragraph_format
+        p = doc.add_paragraph()
+        pf = p.paragraph_format
         pf.space_before, pf.space_after, pf.line_spacing = Pt(0), RESPIRO, Pt(1)
         _fonte(p.add_run(" "), Pt(1))
     else:
@@ -189,7 +209,9 @@ LARGURA_DUPLA = Mm(120)
 
 def _figura_dupla(doc, legenda, caminho):
     """Figura atravessando as duas colunas: seção contínua de 1 coluna só para a figura e a legenda."""
-    s1 = doc.add_section(WD_SECTION.CONTINUOUS); _pagina(s1); _colunas(s1, 1)
+    s1 = doc.add_section(WD_SECTION.CONTINUOUS)
+    _pagina(s1)
+    _colunas(s1, 1)
     p = doc.add_paragraph()
     p.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
     p.paragraph_format.space_before, p.paragraph_format.space_after = (RESPIRO if FINAL else Pt(2)), Pt(2)
@@ -197,7 +219,9 @@ def _figura_dupla(doc, legenda, caminho):
     # figuras marcadas "_dupla" foram desenhadas a 178 mm com fontes ≥ 7 pt: entram quase no tamanho real
     p.add_run().add_picture(str(caminho), width=Mm(170) if "_dupla" in Path(caminho).name else (Mm(144) if FINAL else LARGURA_DUPLA))
     _paragrafo(doc, legenda, WD_ALIGN_PARAGRAPH.CENTER, TAM_LEGENDA, depois=(RESPIRO.pt if FINAL else 2), negrito=True)
-    s2 = doc.add_section(WD_SECTION.CONTINUOUS); _pagina(s2); _colunas(s2, 2)
+    s2 = doc.add_section(WD_SECTION.CONTINUOUS)
+    _pagina(s2)
+    _colunas(s2, 2)
 
 
 def _figura(doc, legenda, caminho):
@@ -221,21 +245,22 @@ def blocos(md: str):
     linhas = md.splitlines()
     i = 0
     while i < len(linhas):
-        l = linhas[i]
-        if not l.strip():
-            i += 1; continue
-        if l.startswith("# "):
-            yield "titulo", l[2:].strip()
-        elif l.startswith("## "):
-            yield "secao", l[3:].strip()
-        elif l.startswith("> "):
-            yield "caixa", l[2:].strip()
-        elif l.strip() == "[quebra de coluna]":
+        ln = linhas[i]
+        if not ln.strip():
+            i += 1
+            continue
+        if ln.startswith("# "):
+            yield "titulo", ln[2:].strip()
+        elif ln.startswith("## "):
+            yield "secao", ln[3:].strip()
+        elif ln.startswith("> "):
+            yield "caixa", ln[2:].strip()
+        elif ln.strip() == "[quebra de coluna]":
             yield "quebra_coluna", None
-        elif l.startswith("!["):
-            m = re.match(r"!\[(.+?)\]\((.+?)\)", l)
+        elif ln.startswith("!["):
+            m = re.match(r"!\[(.+?)\]\((.+?)\)", ln)
             yield "figura", (m.group(1), m.group(2))
-        elif re.match(r"^Tabela \d+\.", l):
+        elif re.match(r"^Tabela \d+\.", ln):
             k = i + 1                                  # a tabela pode vir após linha(s) em branco
             while k < len(linhas) and not linhas[k].strip():
                 k += 1
@@ -243,13 +268,14 @@ def blocos(md: str):
                 j = k
                 while j < len(linhas) and linhas[j].startswith("|"):
                     j += 1
-                yield "tabela", (l.strip(), linhas[k:j])
-                i = j; continue
-            yield "paragrafo", l.strip()
-        elif re.match(r"^\[\d+\] ", l):
-            yield "referencia", l.strip()
+                yield "tabela", (ln.strip(), linhas[k:j])
+                i = j
+                continue
+            yield "paragrafo", ln.strip()
+        elif re.match(r"^\[\d+\] ", ln):
+            yield "referencia", ln.strip()
         else:
-            yield "paragrafo", l.strip()
+            yield "paragrafo", ln.strip()
         i += 1
 
 
@@ -258,11 +284,13 @@ def main() -> None:
     args = [a for a in sys.argv[1:] if a != "--final"]
     FINAL = "--final" in sys.argv
     if args:                         # uso alternativo: build_docx_sbsr.py entrada.md saida.docx [--final]
-        MD = Path(args[0]); OUT = Path(args[1]) if len(args) > 1 else OUT
+        MD = Path(args[0])
+        OUT = Path(args[1]) if len(args) > 1 else OUT
     md = MD.read_text(encoding="utf-8")
     doc = Document()
     est = doc.styles["Normal"]
-    est.font.name = FONTE; est.font.size = TAM_CORPO
+    est.font.name = FONTE
+    est.font.size = TAM_CORPO
     est.element.rPr.rFonts.set(qn("w:eastAsia"), FONTE)
     _pagina(doc.sections[0])
     _colunas(doc.sections[0], 1)
@@ -280,13 +308,18 @@ def main() -> None:
             cabecalho = 1
         elif tipo == "paragrafo" and cabecalho == 1:
             _paragrafo(doc, cont, WD_ALIGN_PARAGRAPH.CENTER, Pt(10.5) if FINAL else TAM_CORPO, depois=6 if FINAL else 4,
-                       italico=FINAL); cabecalho = 2
+                       italico=FINAL)
+            cabecalho = 2
         elif tipo == "paragrafo" and cabecalho == 2:
             _paragrafo(doc, cont, WD_ALIGN_PARAGRAPH.CENTER, TAM_CORPO if FINAL else TAM_AFILIACAO,
-                       depois=LINHA_BRANCA.pt if FINAL else 4); cabecalho = 3
+                       depois=LINHA_BRANCA.pt if FINAL else 4)
+            cabecalho = 3
         elif tipo == "secao":
             if not duas_colunas:                       # o corpo (a partir do Resumo) vai em duas colunas
-                s = doc.add_section(WD_SECTION.CONTINUOUS); _pagina(s); _colunas(s, 2); duas_colunas = True
+                s = doc.add_section(WD_SECTION.CONTINUOUS)
+                _pagina(s)
+                _colunas(s, 2)
+                duas_colunas = True
             em_abstract = cont.lower().startswith("abstract")
             texto = cont if cont[0].isdigit() or cont.isupper() else cont
             if FINAL:                                  # linha em branco antes e depois (o Resumo já está no topo da coluna)
@@ -302,7 +335,8 @@ def main() -> None:
                 recuo = None
             p = _paragrafo(doc, cont, WD_ALIGN_PARAGRAPH.JUSTIFY, TAM_CORPO, recuo=recuo, italico=em_abstract)
             if quebra_pendente:                    # quebra no INÍCIO deste parágrafo: sem linha vazia no topo da coluna
-                r = p.add_run(); r.add_break(WD_BREAK.COLUMN)
+                r = p.add_run()
+                r.add_break(WD_BREAK.COLUMN)
                 p._p.get_or_add_pPr().addnext(r._r)
                 quebra_pendente = False
             primeiro_da_secao = False
@@ -310,7 +344,8 @@ def main() -> None:
             quebra_pendente = FINAL                # equilibra colunas de seção final); ignorado fora do modo final
         elif tipo == "caixa":
             p = _paragrafo(doc, cont, WD_ALIGN_PARAGRAPH.JUSTIFY, TAM_CORPO, antes=4, depois=4, italico=True)
-            _sombrear(p); primeiro_da_secao = False
+            _sombrear(p)
+            primeiro_da_secao = False
         elif tipo == "figura":
             legenda, caminho = cont
             _figura(doc, legenda, REPO / caminho)
@@ -319,7 +354,8 @@ def main() -> None:
             _tabela(doc, legenda, linhas)
         elif tipo == "referencia":
             p = _paragrafo(doc, cont, WD_ALIGN_PARAGRAPH.JUSTIFY, TAM_CORPO, depois=1)
-            p.paragraph_format.left_indent = Cm(0.6); p.paragraph_format.first_line_indent = Cm(-0.6)
+            p.paragraph_format.left_indent = Cm(0.6)
+            p.paragraph_format.first_line_indent = Cm(-0.6)
     doc.save(OUT)
     print(f"OK → {OUT}")
 

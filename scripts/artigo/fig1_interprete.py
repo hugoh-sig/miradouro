@@ -15,6 +15,7 @@ from pathlib import Path
 from statistics import median
 
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from PIL import Image
@@ -35,20 +36,26 @@ LARG_MM, ALT_MM = 178.0, 96.0
 plt.rcParams.update({"font.family": "DejaVu Sans", "font.size": 7.5})
 fig = plt.figure(figsize=(LARG_MM / 25.4, ALT_MM / 25.4), dpi=300)
 # linha de cima: três painéis quadrados
-lado = 0.285; y0 = 0.41; gap = (1 - 3 * lado) / 4
+lado = 0.285
+y0 = 0.41
+gap = (1 - 3 * lado) / 4
 for i, (im, rot) in enumerate([(a, "(a) Sentinel-2, estação seca, cor verdadeira"),
                                (b, "(b) Sentinel-2, estação seca, falsa-cor NIR"),
                                (c, "(c) Alta resolução, zoom 18 (~0,56 m/px)")]):
     ax = fig.add_axes([gap + i * (lado + gap), y0, lado, lado * (LARG_MM / ALT_MM)])
-    ax.imshow(im); ax.set_xticks([]); ax.set_yticks([])
-    for s in ax.spines.values(): s.set_linewidth(0.6); s.set_color("#444444")
+    ax.imshow(im)
+    ax.set_xticks([])
+    ax.set_yticks([])
+    for s in ax.spines.values():
+        s.set_linewidth(0.6)
+        s.set_color("#444444")
     ax.set_title(rot, fontsize=7.5, pad=3)
 # escala: 295 px do chip S2 = 295/371 × 310 m ≈ 246 m; 340 px do HR a 0,56 m/px ≈ 190 m
 def barra(ax, px, texto):
     ax.plot([0.06 * px, 0.06 * px + px * 100 / escala[texto]], [0.93 * px] * 2, color="#000000", lw=1.6)
     ax.text(0.06 * px, 0.90 * px, "100 m", fontsize=7, color="#000000", va="bottom")
 escala = {"a": 295 / (295 / 371 * 310), "c": 340 / 190.4}   # px por metro
-for ax, k, px in zip(fig.axes[:3], ("a", "a", "c"), (295, 295, 340)):
+for ax, k, px in zip(fig.axes[:3], ("a", "a", "c"), (295, 295, 340), strict=True):
     ppm = escala[k]
     ax.plot([0.06 * px, 0.06 * px + 100 * ppm], [0.94 * px] * 2, color="#ffffff", lw=4.0, solid_capstyle="butt", zorder=4)
     ax.plot([0.06 * px, 0.06 * px + 100 * ppm], [0.94 * px] * 2, color="#000000", lw=2.0, solid_capstyle="butt", zorder=5)
@@ -62,19 +69,26 @@ por_dia = {}
 for t, v in obs:
     por_dia.setdefault(t, []).append(v)
 obs = sorted((t, median(vs)) for t, vs in por_dia.items())
-datas = [t for t, _ in obs]; vals = [v for _, v in obs]
-j = d["janela_mediana"]; meio = j // 2
+datas = [t for t, _ in obs]
+vals = [v for _, v in obs]
+j = d["janela_mediana"]
+meio = j // 2
 suave = [median(vals[max(0, i - meio):min(len(vals), i + meio + 1)]) for i in range(len(vals))]
 ax = fig.add_axes([0.06, 0.085, 0.925, 0.25])
 ax.axvspan(date(d["ano_referencia"], 1, 1), date(d["ano_referencia"] + 1, 1, 1), color="#bbbbbb", alpha=0.35, lw=0)
 ax.scatter(datas, vals, s=5, color="#555555", alpha=0.7, linewidths=0, zorder=3)
 ax.plot(datas, suave, color="#000000", lw=0.9, zorder=2)
-ax.set_xlim(date(d["ano_inicio"], 1, 1), date(d["ano_fim"] + 1, 1, 1)); ax.set_ylim(-0.2, 1.0)
-ax.set_yticks([0, 0.5, 1.0]); ax.set_ylabel("NDVI", fontsize=7.5, labelpad=2)
+ax.set_xlim(date(d["ano_inicio"], 1, 1), date(d["ano_fim"] + 1, 1, 1))
+ax.set_ylim(-0.2, 1.0)
+ax.set_yticks([0, 0.5, 1.0])
+ax.set_ylabel("NDVI", fontsize=7.5, labelpad=2)
 ax.text(date(d["ano_referencia"], 7, 1), -0.17, f"ano de referência {d['ano_referencia']}", ha="center", va="bottom", fontsize=7)
 ax.set_title(f"(d) Série NDVI do pixel de 10 m, {len(obs)} datas sem nuvem; pontos = cenas, linha = mediana móvel de {j}",
              fontsize=7.5, pad=3, loc="left")
-for s in ("top", "right"): ax.spines[s].set_visible(False)
-ax.tick_params(labelsize=7); ax.yaxis.grid(True, color="#dddddd", lw=0.5); ax.set_axisbelow(True)
+for s in ("top", "right"):
+    ax.spines[s].set_visible(False)
+ax.tick_params(labelsize=7)
+ax.yaxis.grid(True, color="#dddddd", lw=0.5)
+ax.set_axisbelow(True)
 fig.savefig(OUT, dpi=300)
 print("OK →", OUT, Image.open(OUT).size)
