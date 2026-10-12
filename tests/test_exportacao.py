@@ -18,13 +18,13 @@ from miradouro.exportacao.acatama import (
     geojson_pontos,
     ids_inteiros,
 )
+from miradouro.exportacao.tabela import ErroExportacao, colunas_referencia, escrever_csv
 
 # Sem rasterio, resolver_nodata não tenta abrir o raster e avisa que a tag não foi conferida; com rasterio
 # (extra `acatama`, instalado na CI), um arquivo ilegível produz "não foi possível ler". Os dois ramos
 # são comportamento esperado do mesmo resolvedor; o teste verifica o ramo do ambiente em que roda.
 TEM_RASTERIO = importlib.util.find_spec("rasterio") is not None
 AVISO_RASTER_ILEGIVEL = "não foi possível ler" if TEM_RASTERIO else "rasterio não instalado"
-from miradouro.exportacao.tabela import ErroExportacao, colunas_referencia, escrever_csv
 
 
 @pytest.fixture
