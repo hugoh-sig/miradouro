@@ -118,3 +118,36 @@ python-docx; o build rodou com o `.venv` do `paraopeba_r3_quintais`.
   esquerda com 2 linhas; p. 2 Fig. 1 com respiro de 6 pt; p. 3 cheia, Tabela 1, Fig. 2, Tabela 2 e o
   cabeçalho da discussão no pé; p. 4 discussão, conclusões, referências; nenhum marcador visível,
   nenhuma sobreposição. `rascunho.docx` reconstruído.
+
+## 2026-10-12 — CI vermelha após a publicação: diagnóstico e correção pela raiz
+
+Sintoma: todos os runs do Actions falhavam (job 3.11 ou 3.12 "failure", o outro "cancelled" pelo
+fail-fast), contradizendo o artigo 3 ("integração contínua em Python 3.11 e 3.12"). Hipótese inicial
+(testes dependentes de `respostas/`, `chips/`, `listas/`, `refs_paraopeba/` fora do git) **refutada**:
+no clone limpo do repositório público a suíte passa com o venv local. As causas reais, em camadas,
+descobertas uma a uma (cada correção expôs a seguinte):
+
+1. **Lint reprovado pelos scripts do artigo** (`scripts/`, 65–71 erros: E702/E701 statements unidos por
+   `;`, E741 variável `l`, B905 `zip` sem `strict`, F841, I001/F401). A suíte nem chegava a rodar.
+   Corrigido no código (desdobramento por tokenizador, renomeações, `zip(..., strict=…)`), sem regra
+   ignorada (commit 35170be).
+2. **Ruff divergente entre local (0.16.7) e Actions (0.17.0)**: o 0.17 não classificava `miradouro`
+   como primeira parte no clone e reordenava imports de 5 testes (I001). Corrigido por configuração
+   explícita (`[tool.ruff.lint.isort] known-first-party = ["miradouro"]`) e `ruff==0.17.0` fixado no
+   extra `dev` (7f56cf4).
+3. **O repositório publicado estava sem `miradouro/chips/`** (11 arquivos): o padrão não ancorado
+   `chips/` do `.gitignore`, pensado para `exemplos/*/chips/`, ignorava também o subpacote. Localmente
+   passava porque `python -m pytest` usa a árvore completa. Reproduzido num venv limpo no clone
+   (`ModuleNotFoundError: miradouro.chips`; `chips listar` quebrado). Padrões `chips/` e `respostas/`
+   removidos (os `exemplos/*/…` já cobrem as saídas), subpacote adicionado, e `pythonpath = ["."]` no
+   pytest para `from tests.conftest import …` funcionar com `pytest` direto (4196d1a). **Consequência
+   para o artigo 3**: entre 18:07 e ~20:10 de 12/10 o repositório público da ref. [8] estava incompleto.
+4. **Dois testes de exportação dependiam do `rasterio`** (extra `acatama`, não instalado na CI): com
+   um raster ilegível esperavam o aviso "não foi possível ler", mas sem rasterio o resolvedor avisa
+   "rasterio não instalado". Testes tornados explícitos quanto ao ambiente (`AVISO_RASTER_ILEGIVEL`),
+   nenhum desabilitado; o workflow passou a instalar `.[chips,app,acatama,dev]` para exercitar o ramo
+   com rasterio; `import ee` não usado em `gee.py` removido (00cee82, ce5245b).
+
+Verificação: clone limpo + venv novo, `pytest` direto (sem rasterio) → 242 passam, 3 pulados (playwright,
+rasterio, 1 já existente); local com rasterio → 245 coletados, 1 pulado; run `38301256775` do Actions
+**success** nos dois Pythons (lint, testes com cobertura, smoke da CLI).
