@@ -151,3 +151,35 @@ descobertas uma a uma (cada correção expôs a seguinte):
 Verificação: clone limpo + venv novo, `pytest` direto (sem rasterio) → 242 passam, 3 pulados (playwright,
 rasterio, 1 já existente); local com rasterio → 245 coletados, 1 pulado; run `38301256775` do Actions
 **success** nos dois Pythons (lint, testes com cobertura, smoke da CLI).
+
+## 2026-10-12 — Artigo 3: renovação das referências (meta: maioria 2023–2026)
+
+Resultado: 12 referências, **7 de 2024–2026** (Shimizu 2025, Akturk 2025, Zhao 2026, Llano 2026,
+Tang 2025, Sun 2024, Salis 2027) + Pengra 2020, Stehman & Foody 2019, Saah 2019, Olofsson 2014 e o
+software. Todas conferidas no Crossref em 12/10/2026 (DOI, revista, volume, número, páginas/artigo).
+
+Entradas (e onde citam):
+- [3] K. Shimizu et al., *Forestry* 99(3) cpaf077, 2025 (10.1093/forestry/cpaf077): variabilidade
+  entre intérpretes vicia área e variância — **substitui Foody 2010** na mesma função (erro de
+  referência distorcendo estimativas), com dado empírico recente de interpretação visual.
+- [6] E. Akturk, ViitGEE, *Earth Science Informatics* 18(4) 504, 2025 (10.1007/s12145-025-02003-8) e
+  [7] T. Zhao et al., *Big Earth Data* 10(3) 1929–1953, 2026 (10.1080/20964471.2025.2608464; online
+  dez/2025, fascículo 2026): ferramentas abertas de interpretação visual sobre o Earth Engine — novo
+  item do panorama de ferramentas na introdução, entre o CEO e o AcATaMa. **Bey 2016 saiu** (Saah 2019
+  cobre a família Collect Earth) para abrir espaço.
+- [11] Tang et al. 2025 e [12] Sun et al. 2024 (já verificadas no artigo 1): citadas na frase final das
+  conclusões ("ruído de rótulo [11, 12]"), onde o escopo se estende a amostras de treinamento.
+- Buscas sem candidato adequado: "qualidade/erro de dados de referência 2023–2026" só devolveu
+  trabalhos de amostragem (Skakun 2025; Tyukavina et al. 2025, RSE) ou fora do tema; Foody 2010
+  continua a melhor afirmação direta do efeito do erro de referência, mas a tese já está coberta por
+  Stehman & Foody 2019 + Shimizu 2025.
+
+Orçamento: +3 referências e 3 citações custaram 10 linhas (5 páginas). Compensado por: "et al." em
+Zhao e Llano; ref. [9] sem "Disponível em:"; legenda da Fig. 1 sem a oração final; marca `[quebra de
+coluna]` removida (a última página ficou cheia); aparas de fraseado sem números — §2.1 ("em lote e em
+paralelo"), §2.2 ("nem ao relatório"), §2.4 (frase "O desenho de resposta é, portanto, declarado uma
+vez…"), §2.5 ("em Markdown e JSON"), §2.6 (amostra persistida em parênteses), §3.2 ("com uma quinta
+sessão aberta sem gravação"), §3.4 ("sorteados em 23 de setembro"), discussão ("sem instrumentação
+adicional" na 1ª ocorrência; "com o pacote restaurável do AcATaMa como saída", já dito no §2.6; "que
+encadeará as etapas sem exibir os critérios"), legenda da Tab. 2 ("todos"). Corpo 2.882 → 2.818
+palavras. PDF: **4 páginas**, última com colunas a 252,9 e 248,6 mm, sem vales; conferido a 100 dpi.
