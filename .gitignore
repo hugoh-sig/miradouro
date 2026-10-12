@@ -18,8 +18,7 @@ htmlcov/
 exemplos/*/chips/
 exemplos/*/respostas/
 exemplos/*/listas/
-chips/
-respostas/
+# (padrões não ancorados como `chips/` ignorariam também o subpacote miradouro/chips — não usar)
 *.log
 
 # Sistema / editores

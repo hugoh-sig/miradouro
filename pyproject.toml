@@ -66,6 +66,7 @@ miradouro = ["interface/teclado_html/*.html"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+pythonpath = ["."]   # `from tests.conftest import …` funciona com `pytest` direto (CI) e com `python -m pytest`
 
 [tool.ruff]
 line-length = 100
