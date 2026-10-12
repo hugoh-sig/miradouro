@@ -45,7 +45,7 @@ app = [
 dev = [
   "pytest>=8",
   "pytest-cov",
-  "ruff",
+  "ruff==0.17.0",   # fixado: a classificação de imports (isort) mudou entre versões e quebrou a CI (12/10/2026)
 ]
 
 [project.scripts]
@@ -74,3 +74,7 @@ target-version = "py310"
 [tool.ruff.lint]
 select = ["E", "F", "I", "W", "B", "UP"]
 ignore = ["E501"]
+
+[tool.ruff.lint.isort]
+# explícito: sem isto, a detecção automática de primeira parte varia entre ambientes (local × Actions)
+known-first-party = ["miradouro"]
