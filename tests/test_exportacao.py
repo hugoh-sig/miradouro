@@ -1,6 +1,7 @@
 """Tabela de referência e exportador AcATaMa (sem QGIS: valida a estrutura do yml/GeoJSON)."""
 
 import csv
+import importlib.util
 import json
 from pathlib import Path
 
@@ -17,6 +18,12 @@ from miradouro.exportacao.acatama import (
     geojson_pontos,
     ids_inteiros,
 )
+
+# Sem rasterio, resolver_nodata não tenta abrir o raster e avisa que a tag não foi conferida; com rasterio
+# (extra `acatama`, instalado na CI), um arquivo ilegível produz "não foi possível ler". Os dois ramos
+# são comportamento esperado do mesmo resolvedor; o teste verifica o ramo do ambiente em que roda.
+TEM_RASTERIO = importlib.util.find_spec("rasterio") is not None
+AVISO_RASTER_ILEGIVEL = "não foi possível ler" if TEM_RASTERIO else "rasterio não instalado"
 from miradouro.exportacao.tabela import ErroExportacao, colunas_referencia, escrever_csv
 
 
@@ -128,7 +135,7 @@ def test_exportar_acatama_arquivos(respondido, tmp_path):
     assert r.n_pontos == 1 and r.n_rotulados == 1 and r.ids_gerados  # 'p1' não é inteiro → id gerado
     cfg = yaml.safe_load(r.yml.read_text(encoding="utf-8"))
     assert cfg["thematic_map"]["path"] == str(mapa.resolve()) and cfg["sampling_layer"] == str(r.geojson.resolve())
-    assert cfg["thematic_map"]["nodata"] == "0" and any("não foi possível ler" in a for a in r.avisos)
+    assert cfg["thematic_map"]["nodata"] == "0" and any(AVISO_RASTER_ILEGIVEL in a for a in r.avisos)
     assert cfg["labeling_buttons"][1]["thematic_class"] == "1" and cfg["samples"] == {0: {"label_id": 1, "sample_id": 1}}
     fc = json.loads(r.geojson.read_text(encoding="utf-8"))
     assert fc["features"][0]["properties"]["id"] == 1 and fc["features"][0]["properties"]["PLOTID"] == "p1"
@@ -279,7 +286,7 @@ def test_resolver_nodata(tmp_path):
     with pytest.raises(ErroExportacao, match="--nodata"):
         resolver_nodata(str(falso), None)
     v, avisos = resolver_nodata(str(falso), 0)
-    assert v == 0 and any("não foi possível ler" in a for a in avisos)
+    assert v == 0 and any(AVISO_RASTER_ILEGIVEL in a for a in avisos)
     # tag presente: lida do raster; --nodata divergente prevalece com aviso
     com_tag = _tif(tmp_path / "com_tag.tif", 255)
     assert resolver_nodata(str(com_tag), None) == (255, [])

@@ -48,8 +48,6 @@ def inicializar_ee(projeto_gee: str | None) -> None:
 
 def mascarar_nuvens_s2(img):
     """Máscara com a banda SCL do S2 SR: remove nuvem, sombra, cirrus, neve e saturado."""
-    import ee
-
     scl = img.select("SCL")
     ruim = (
         scl.eq(1).Or(scl.eq(3)).Or(scl.eq(8)).Or(scl.eq(9)).Or(scl.eq(10)).Or(scl.eq(11))
