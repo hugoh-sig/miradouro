@@ -52,7 +52,7 @@ dev = [
 miradouro = "miradouro.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/hugosalis/miradouro"
+Homepage = "https://github.com/hugoh-sig/miradouro"
 
 [tool.setuptools.dynamic]
 version = { attr = "miradouro.__version__" }

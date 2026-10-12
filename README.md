@@ -16,7 +16,7 @@ O núcleo é agnóstico: nada de legendas, regiões ou projetos dentro do pacote
 ## Quickstart
 
 ```bash
-git clone https://github.com/hugosalis/miradouro && cd miradouro
+git clone https://github.com/hugoh-sig/miradouro && cd miradouro
 python3.12 -m venv .venv && source .venv/bin/activate
 pip install -e ".[chips,app,dev]"
 
@@ -369,6 +369,17 @@ exemplos/
   demo/      5 pontos públicos em MG para testar os provedores
   paraopeba/ primeiro cliente real (8 classes, 458 pontos)
 ```
+
+## Citação
+
+Artigo que descreve a ferramenta e o caso de uso:
+
+> H. H. Salis. MIRADOURO: ferramenta aberta para interpretação de referência com cegueira por
+> construção e auditoria embutida. Submetido ao XXII Simpósio Brasileiro de Sensoriamento
+> Remoto (SBSR), 2027. Texto e diagramação em [docs/artigo/](docs/artigo/).
+
+Software: H. H. Salis. MIRADOURO: ferramenta de interpretação de pontos de referência, versão
+0.1.0, 2026 (este repositório).
 
 ## Licença
 

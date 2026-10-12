@@ -110,6 +110,6 @@ Numa referência real de 458 pontos, a ferramenta registrou 2 h 26 min de interp
 
 [7] X. C. Llano, L. K. Vergara, J. A. Arias e G. Galindo. AcATaMa: a QGIS plugin for accuracy assessment and area estimation. Applied Computing and Geosciences, v. 31, 100389, 2026.
 
-[8] H. H. Salis. MIRADOURO: ferramenta de interpretação de pontos de referência, versão 0.1.0 [software]. 2026. Disponível em: https://github.com/hugosalis/miradouro.
+[8] H. H. Salis. MIRADOURO: ferramenta de interpretação de pontos de referência, versão 0.1.0 [software]. 2026. Disponível em: https://github.com/hugoh-sig/miradouro.
 
 [9] H. H. Salis. Mapeamento multiescalar da agricultura familiar na bacia do rio Paraopeba (MG): Sentinel-2, análise de vizinhança e MapBiomas. Submetido ao XXII Simpósio Brasileiro de Sensoriamento Remoto, 2027.
