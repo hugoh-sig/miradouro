@@ -67,3 +67,25 @@ diferença, o melhor na granularidade de frase). Conferido página a página (10
 tabelas a 200 dpi): 4 páginas Letter, colunas a 19,1–104,9 e 111,0–196,8 mm, título a 34,8 mm,
 Times New Roman embutida, sem numeração, sem sobreposição. O `.venv` deste repositório não tem
 python-docx; o build rodou com o `.venv` do `paraopeba_r3_quintais`.
+
+## 2026-10-12 — Publicação do repositório (pré-requisito da ref. [8] do artigo 3)
+
+### Auditoria pré-publicação
+- Histórico completo (`git log -p --all`, 12 commits) varrido por chave/token/credencial/conta de
+  serviço/e-mail/caminho pessoal: **nenhum segredo**. Acertos de "secret" são sentinelas de teste
+  (`MOTIVO_SECRETO`, `coluna_secreta`); `ee-hugohcsalis2` é o id do projeto Earth Engine nos YAMLs
+  (não é credencial). E-mails: autor dos commits e afiliação do artigo. Nenhum `/Users/...`.
+- Caso real fora do git: `exemplos/*/respostas/`, `exemplos/*/chips/`, `exemplos/*/listas/` e
+  `refs_paraopeba/` ignorados e nunca commitados; sob `exemplos/` só os dois `projeto.yaml` e o
+  `pontos.csv` da demo.
+- LICENSE MIT, "Copyright (c) 2026 Hugo Salis". README ganhou a seção **Citação** (artigo
+  "Submetido ao XXII SBSR, 2027" e software).
+
+### Publicação
+- O repositório não tinha remote, e o owner `hugosalis` (README, pyproject, ref. [8]) não existe
+  no GitHub. Decisão do autor: publicar sob a conta pessoal **hugoh-sig**.
+- `gh auth switch --user hugoh-sig`; `gh repo create hugoh-sig/miradouro --public --source . --push`
+  (commit e2e09ba). URL atualizada em README, pyproject e ref. [8] do artigo; docx/PDF do artigo
+  reconstruídos (4 páginas, última página 232/219 mm).
+- Verificação: `gh repo view` → PUBLIC, branch main; `curl https://github.com/hugoh-sig/miradouro`
+  → HTTP 200. Ref. [8] confere com a URL.
