@@ -20,7 +20,7 @@ PONTOS_H = [141.6, 158.3, 175.8, 246.8]
 
 LARG_MM = 70.0
 plt.rcParams.update({"font.family": "DejaVu Sans", "font.size": 7.5})
-fig, ax = plt.subplots(figsize=(LARG_MM / 25.4, 42 / 25.4), dpi=300)
+fig, ax = plt.subplots(figsize=(LARG_MM / 25.4, 38 / 25.4), dpi=300)
 x = list(range(len(SESSOES)))
 ax.bar(x, MEDIANA_S, width=0.62, color="#9a9a9a", edgecolor="#222222", linewidth=0.6, zorder=2)
 for xi, m in zip(x, MEDIANA_S):
@@ -33,6 +33,6 @@ ax.yaxis.grid(True, color="#dddddd", linewidth=0.5, zorder=0); ax.set_axisbelow(
 for lado in ("top", "right"):
     ax.spines[lado].set_visible(False)
 ax.tick_params(labelsize=7)
-fig.subplots_adjust(left=0.16, right=0.98, bottom=0.39, top=0.96)
+fig.subplots_adjust(left=0.16, right=0.98, bottom=0.42, top=0.96)
 fig.savefig(OUT, dpi=300)
 print("OK →", OUT)

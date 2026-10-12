@@ -89,3 +89,32 @@ python-docx; o build rodou com o `.venv` do `paraopeba_r3_quintais`.
   reconstruídos (4 páginas, última página 232/219 mm).
 - Verificação: `gh repo view` → PUBLIC, branch main; `curl https://github.com/hugoh-sig/miradouro`
   → HTTP 200. Ref. [8] confere com a URL.
+
+## 2026-10-12 — Artigo 3: título final, escopo ampliado e revisão de espaçamentos
+
+- **Título**: "MIRADOURO: rotulagem auditável de pontos para dados de referência em validação de mapas
+  de uso e cobertura da terra". Coerência com o termo "rotulagem": Resumo passou a "ferramenta aberta
+  (Python, MIT) de rotulagem de pontos de referência"; Abstract, "for labelling reference points".
+  Resumo 146 / Abstract 132 palavras.
+- **Conclusões**: frase final estendida a outras tarefas de rotulagem de pontos (amostras de treinamento
+  para classificadores; subsídio uniforme e trilha de auditoria mitigando o ruído de rótulo). Nada
+  mais mudou na discussão.
+- **Espaçamentos no build (`--final`)**, contra o template medido (passo de linha do corpo 10 pt =
+  4,1 mm ≈ 11,6 pt; uma linha em branco entre afiliações e Resumo e em volta de cada cabeçalho):
+  linha em branco dos cabeçalhos 11 → 11,5 pt; respiro uniforme de 6 pt (`RESPIRO`) antes da figura e
+  depois da legenda, antes da legenda da tabela e depois da tabela (parágrafo de 1 pt + 6 pt no lugar
+  do parágrafo vazio de ~13 pt, que dava respiro desigual entre figuras e tabelas); bloco do título com
+  10 pt título → autores e 6 pt autores → afiliações (≈ 5 mm no template). Espaçamento simples e
+  recuo de 0,63 cm conferidos (já estavam corretos).
+- **Marca `[quebra de coluna]`**: agora inserida no início do parágrafo seguinte (antes era anexada ao
+  anterior e deixava uma linha vazia no topo da coluna). Posicionada antes de "Numa referência real de
+  458 pontos…": última página com colunas a 236,6 e 227,2 mm.
+- **Reflow**: os espaçamentos maiores custaram ~8 linhas; 1º build com 5 páginas e o cabeçalho
+  "1. INTRODUÇÃO" fora do pé da página 1. Resolvido com uma linha a menos no Abstract ("median time
+  per point" → "median per point"; "an intra-interpreter" → "intra-interpreter"), uma linha a menos no
+  §3.4 ("A acurácia do mapa estimada sobre essa referência" → "A acurácia do mapa sobre essa
+  referência") e Fig. 2 de 42 para 38 mm de altura (legibilidade conferida a 200 dpi).
+- **Verificação página a página** (100 dpi): 4 páginas; p. 1 cabeçalho da introdução no pé da coluna
+  esquerda com 2 linhas; p. 2 Fig. 1 com respiro de 6 pt; p. 3 cheia, Tabela 1, Fig. 2, Tabela 2 e o
+  cabeçalho da discussão no pé; p. 4 discussão, conclusões, referências; nenhum marcador visível,
+  nenhuma sobreposição. `rascunho.docx` reconstruído.

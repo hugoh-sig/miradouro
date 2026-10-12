@@ -1,4 +1,4 @@
-# MIRADOURO: FERRAMENTA ABERTA PARA INTERPRETAÇÃO DE REFERÊNCIA COM CEGUEIRA POR CONSTRUÇÃO E AUDITORIA EMBUTIDA
+# MIRADOURO: ROTULAGEM AUDITÁVEL DE PONTOS PARA DADOS DE REFERÊNCIA EM VALIDAÇÃO DE MAPAS DE USO E COBERTURA DA TERRA
 
 Hugo Henrique Salis ¹
 
@@ -6,13 +6,13 @@ Hugo Henrique Salis ¹
 
 ## Resumo
 
-A qualidade da referência é o elo fraco da validação de mapas de uso e cobertura da terra: a interpretação visual é um sensor com ruído, e as boas práticas pedem independência, consistência e rastreabilidade. Este trabalho apresenta o MIRADOURO, ferramenta aberta (Python, MIT) de interpretação de referência que coloca essas salvaguardas na própria ferramenta: a classe do mapa e o desenho amostral nunca chegam à interface; os painéis de subsídio (Sentinel-2 sazonal, série NDVI e alta resolução) são pré-computados; a resposta é validada contra o desenho declarado; cada gravação é atômica e auditável; segunda passada cega, consenso e revisão dirigida são modos nativos. No caso de uso, 458 pontos de um mapa Sentinel-2 foram interpretados em 2 h 26 min, com mediana por ponto de 25,8 s a 8,8 s e concordância intra-intérprete de 82,6 % (kappa 0,787) medida pela segunda passada embutida.
+A qualidade da referência é o elo fraco da validação de mapas de uso e cobertura da terra: a interpretação visual é um sensor com ruído, e as boas práticas pedem independência, consistência e rastreabilidade. Este trabalho apresenta o MIRADOURO, ferramenta aberta (Python, MIT) de rotulagem de pontos de referência que coloca essas salvaguardas na própria ferramenta: a classe do mapa e o desenho amostral nunca chegam à interface; os painéis de subsídio (Sentinel-2 sazonal, série NDVI e alta resolução) são pré-computados; a resposta é validada contra o desenho declarado; cada gravação é atômica e auditável; segunda passada cega, consenso e revisão dirigida são modos nativos. No caso de uso, 458 pontos de um mapa Sentinel-2 foram interpretados em 2 h 26 min, com mediana por ponto de 25,8 s a 8,8 s e concordância intra-intérprete de 82,6 % (kappa 0,787) medida pela segunda passada embutida.
 
 **Palavras-chave** — interpretação visual, dados de referência, acurácia temática, software livre, Sentinel-2.
 
 ## Abstract
 
-*Reference data quality is the weak link of land-cover map validation: visual interpretation is a noisy sensor, and good practice requires independence, consistency and traceability. MIRADOURO is an open tool (Python, MIT) for reference interpretation that builds these safeguards into the tool: the map class and the sampling design never reach the interface; the supporting panels (seasonal Sentinel-2, NDVI series and high-resolution imagery) are precomputed; answers are validated against the declared design; every write is atomic and auditable; blind second pass, consensus and directed review are native modes. In the use case, 458 points of a Sentinel-2 map were interpreted in 2 h 26 min, with the median time per point falling from 25.8 s to 8.8 s and an intra-interpreter agreement of 82.6 % (kappa 0.787) from the built-in second pass.*
+*Reference data quality is the weak link of land-cover map validation: visual interpretation is a noisy sensor, and good practice requires independence, consistency and traceability. MIRADOURO is an open tool (Python, MIT) for labelling reference points that builds these safeguards into the tool: the map class and the sampling design never reach the interface; the supporting panels (seasonal Sentinel-2, NDVI series and high-resolution imagery) are precomputed; answers are validated against the declared design; every write is atomic and auditable; blind second pass, consensus and directed review are native modes. In the use case, 458 points of a Sentinel-2 map were interpreted in 2 h 26 min, with the median per point falling from 25.8 s to 8.8 s and intra-interpreter agreement of 82.6 % (kappa 0.787) from the built-in second pass.*
 
 ***Key words*** *— visual interpretation, reference data, thematic accuracy, open-source software, Sentinel-2.*
 
@@ -74,7 +74,7 @@ Tabela 2. Números do caso de uso, todos extraídos dos relatórios de sessão e
 | Concordância intra-intérprete (kappa) | 38/46 = 82,6 % (0,787) |
 | Divergências arbitradas; tempo | 8; 2 min 28 s |
 
-**3.4. Segunda passada cega e consenso.** Como nenhuma resposta teve confiança baixa, a segunda passada foi a amostra de controle de 10 %: 46 pontos, sorteados em 23 de setembro e lidos pelo mesmo intérprete sob outro identificador em 30 de setembro, 15 a 17 dias depois das leituras originais, em 10 min 50 s. A concordância na classe foi de 38 em 46 (82,6 %; kappa de Cohen 0,787), calculada antes do consenso; sem os 8 pontos que também estavam nas listas dirigidas, com distância temporal de 7 dias, foi de 33 em 38 (86,8 %). As 8 divergências foram arbitradas no modo de consenso em 2 min 28 s; a ferramenta regravou só os 8 registros, com as duas leituras originais guardadas; os outros 450 ficaram idênticos ao backup da sessão. A acurácia do mapa estimada sobre essa referência é reportada em [9].
+**3.4. Segunda passada cega e consenso.** Como nenhuma resposta teve confiança baixa, a segunda passada foi a amostra de controle de 10 %: 46 pontos, sorteados em 23 de setembro e lidos pelo mesmo intérprete sob outro identificador em 30 de setembro, 15 a 17 dias depois das leituras originais, em 10 min 50 s. A concordância na classe foi de 38 em 46 (82,6 %; kappa de Cohen 0,787), calculada antes do consenso; sem os 8 pontos que também estavam nas listas dirigidas, com distância temporal de 7 dias, foi de 33 em 38 (86,8 %). As 8 divergências foram arbitradas no modo de consenso em 2 min 28 s; a ferramenta regravou só os 8 registros, com as duas leituras originais guardadas; os outros 450 ficaram idênticos ao backup da sessão. A acurácia do mapa sobre essa referência é reportada em [9].
 
 ## 4. DISCUSSÃO
 
@@ -92,7 +92,7 @@ O MIRADOURO coloca na construção da ferramenta as salvaguardas que as boas pr�
 
 [quebra de coluna]
 
-Numa referência real de 458 pontos, a ferramenta registrou 2 h 26 min de interpretação, uma mediana por ponto que caiu de 25,8 s para 8,8 s e uma concordância intra-intérprete de 82,6 %, tudo sem instrumentação adicional. O que a construção garante é a independência e a rastreabilidade da referência; o que continua com o protocolo é o desenho amostral, a legenda, os estimadores e o intérprete. O projeto declarativo permite aplicar a ferramenta a qualquer legenda e região.
+Numa referência real de 458 pontos, a ferramenta registrou 2 h 26 min de interpretação, uma mediana por ponto que caiu de 25,8 s para 8,8 s e uma concordância intra-intérprete de 82,6 %, tudo sem instrumentação adicional. O que a construção garante é a independência e a rastreabilidade da referência; o que continua com o protocolo é o desenho amostral, a legenda, os estimadores e o intérprete. O projeto declarativo permite aplicar a ferramenta a qualquer legenda e região, e a outras tarefas de rotulagem de pontos, como a produção de amostras de treinamento para classificadores, em que o subsídio uniforme e a trilha de auditoria mitigam o ruído de rótulo.
 
 ## REFERÊNCIAS
 

@@ -24,7 +24,7 @@ Convenções do texto.md:
   '![Figura N. legenda](caminho)'  → imagem na largura da coluna + legenda 9 pt negrito abaixo
   'Tabela N. legenda' + tabela '|' → legenda 9 pt negrito acima + tabela real do Word
   '[n] referência'                 → item de referência com recuo deslocado
-  '[quebra de coluna]'             → (só --final) quebra de coluna após o parágrafo anterior: equilíbrio da última página
+  '[quebra de coluna]'             → (só --final) quebra de coluna no início do parágrafo seguinte: equilíbrio da última página
 """
 import re
 import sys
@@ -46,7 +46,8 @@ LARGURA_COLUNA = Mm(86)
 TAM_CORPO, TAM_LEGENDA, TAM_TABELA, TAM_AFILIACAO = Pt(10), Pt(9), Pt(7), Pt(9)
 RECUO = Cm(0.63)
 FINAL = False            # ligado por --final (ver docstring)
-LINHA_BRANCA = Pt(11)     # uma linha em branco de 10 pt antes/depois dos títulos de seção, como no template
+LINHA_BRANCA = Pt(11.5)   # uma linha em branco (passo de linha do corpo 10 pt ≈ 11,5 pt) antes/depois dos títulos, como no template
+RESPIRO = Pt(6)           # respiro uniforme entre texto e figuras/tabelas (modo final)
 
 # ── utilitários de formatação ──────────────────────────────────────────────────────────────
 def _fonte(run, tam=TAM_CORPO, negrito=None, italico=None):
@@ -134,7 +135,8 @@ def _celula(cell, texto, tam=TAM_TABELA, negrito=False, alinh=WD_ALIGN_PARAGRAPH
 
 
 def _tabela(doc, legenda, linhas):
-    _paragrafo(doc, legenda, WD_ALIGN_PARAGRAPH.CENTER, TAM_LEGENDA, antes=4, depois=2, negrito=True, keep_next=True)
+    _paragrafo(doc, legenda, WD_ALIGN_PARAGRAPH.CENTER, TAM_LEGENDA, antes=(RESPIRO.pt if FINAL else 4), depois=2,
+               negrito=True, keep_next=True)
     cab = [c.strip() for c in linhas[0].strip("|").split("|")]
     corpo = [[c.strip() for c in l.strip("|").split("|")] for l in linhas[2:]]
     t = doc.add_table(rows=1 + len(corpo), cols=len(cab))
@@ -174,7 +176,12 @@ def _tabela(doc, legenda, linhas):
             cell.width = larguras[j]
             if i < len(t.rows) - 1:                                  # tabela inteira numa só coluna
                 cell.paragraphs[0].paragraph_format.keep_with_next = True
-    _paragrafo(doc, "", depois=2)
+    if FINAL:                                       # respiro após a tabela igual ao das figuras: parágrafo de 1 pt + 6 pt
+        p = doc.add_paragraph(); pf = p.paragraph_format
+        pf.space_before, pf.space_after, pf.line_spacing = Pt(0), RESPIRO, Pt(1)
+        _fonte(p.add_run(" "), Pt(1))
+    else:
+        _paragrafo(doc, "", depois=2)
 
 
 LARGURA_DUPLA = Mm(120)
@@ -185,11 +192,11 @@ def _figura_dupla(doc, legenda, caminho):
     s1 = doc.add_section(WD_SECTION.CONTINUOUS); _pagina(s1); _colunas(s1, 1)
     p = doc.add_paragraph()
     p.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    p.paragraph_format.space_before, p.paragraph_format.space_after = Pt(2), Pt(2)
+    p.paragraph_format.space_before, p.paragraph_format.space_after = (RESPIRO if FINAL else Pt(2)), Pt(2)
     p.paragraph_format.keep_with_next = True
     # figuras marcadas "_dupla" foram desenhadas a 178 mm com fontes ≥ 7 pt: entram quase no tamanho real
     p.add_run().add_picture(str(caminho), width=Mm(170) if "_dupla" in Path(caminho).name else (Mm(144) if FINAL else LARGURA_DUPLA))
-    _paragrafo(doc, legenda, WD_ALIGN_PARAGRAPH.CENTER, TAM_LEGENDA, depois=2, negrito=True)
+    _paragrafo(doc, legenda, WD_ALIGN_PARAGRAPH.CENTER, TAM_LEGENDA, depois=(RESPIRO.pt if FINAL else 2), negrito=True)
     s2 = doc.add_section(WD_SECTION.CONTINUOUS); _pagina(s2); _colunas(s2, 2)
 
 
@@ -198,14 +205,14 @@ def _figura(doc, legenda, caminho):
         return _figura_dupla(doc, legenda, caminho)
     p = doc.add_paragraph()
     p.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    p.paragraph_format.space_before, p.paragraph_format.space_after = Pt(4), Pt(2)
+    p.paragraph_format.space_before, p.paragraph_format.space_after = (RESPIRO if FINAL else Pt(4)), Pt(2)
     p.paragraph_format.keep_with_next = True
     # a Fig. 1 (mapa, formato retrato) entra um pouco mais estreita para não dominar a coluna
     largura = Mm(56) if "fig1_" in Path(caminho).name else Mm(70)   # Fig. 1 desenhada para a coluna; 78 mm mantém ≥ 6,5 pt
     if FINAL and "fig1_" in Path(caminho).name:
         largura = Mm(68)
     p.add_run().add_picture(str(caminho), width=largura)
-    _paragrafo(doc, legenda, WD_ALIGN_PARAGRAPH.CENTER, TAM_LEGENDA, depois=2, negrito=True)
+    _paragrafo(doc, legenda, WD_ALIGN_PARAGRAPH.CENTER, TAM_LEGENDA, depois=(RESPIRO.pt if FINAL else 2), negrito=True)
 
 
 # ── leitura do markdown restrito ───────────────────────────────────────────────────────────
@@ -264,13 +271,15 @@ def main() -> None:
     em_abstract = False
     primeiro_da_secao = True
     duas_colunas = False
+    quebra_pendente = False
     for tipo, cont in blocos(md):
         if tipo == "titulo":
             # modo final: 10 mm (28 pt) de espaço antes → topo do título a 35 mm da borda (margem de 25 mm)
-            p = _paragrafo(doc, cont, WD_ALIGN_PARAGRAPH.CENTER, Pt(14), antes=28 if FINAL else 0, depois=4, negrito=True)
+            p = _paragrafo(doc, cont, WD_ALIGN_PARAGRAPH.CENTER, Pt(14), antes=28 if FINAL else 0, depois=10 if FINAL else 4,
+                           negrito=True)
             cabecalho = 1
         elif tipo == "paragrafo" and cabecalho == 1:
-            _paragrafo(doc, cont, WD_ALIGN_PARAGRAPH.CENTER, Pt(10.5) if FINAL else TAM_CORPO, depois=4,
+            _paragrafo(doc, cont, WD_ALIGN_PARAGRAPH.CENTER, Pt(10.5) if FINAL else TAM_CORPO, depois=6 if FINAL else 4,
                        italico=FINAL); cabecalho = 2
         elif tipo == "paragrafo" and cabecalho == 2:
             _paragrafo(doc, cont, WD_ALIGN_PARAGRAPH.CENTER, TAM_CORPO if FINAL else TAM_AFILIACAO,
@@ -291,11 +300,14 @@ def main() -> None:
             recuo = None if primeiro_da_secao else RECUO
             if FINAL and re.match(r"^\*\*\d+\.\d+\.", cont):   # subseção embutida: negrito na margem esquerda
                 recuo = None
-            _paragrafo(doc, cont, WD_ALIGN_PARAGRAPH.JUSTIFY, TAM_CORPO, recuo=recuo, italico=em_abstract)
+            p = _paragrafo(doc, cont, WD_ALIGN_PARAGRAPH.JUSTIFY, TAM_CORPO, recuo=recuo, italico=em_abstract)
+            if quebra_pendente:                    # quebra no INÍCIO deste parágrafo: sem linha vazia no topo da coluna
+                r = p.add_run(); r.add_break(WD_BREAK.COLUMN)
+                p._p.get_or_add_pPr().addnext(r._r)
+                quebra_pendente = False
             primeiro_da_secao = False
         elif tipo == "quebra_coluna":              # equilíbrio manual da última página (o LibreOffice não
-            if FINAL:                              # equilibra colunas de seção final); ignorado fora do modo final
-                doc.paragraphs[-1].add_run().add_break(WD_BREAK.COLUMN)
+            quebra_pendente = FINAL                # equilibra colunas de seção final); ignorado fora do modo final
         elif tipo == "caixa":
             p = _paragrafo(doc, cont, WD_ALIGN_PARAGRAPH.JUSTIFY, TAM_CORPO, antes=4, depois=4, italico=True)
             _sombrear(p); primeiro_da_secao = False
